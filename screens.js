@@ -134,10 +134,25 @@ export function typingGame(ctx, W, H, seconds){
   }
 }
 
+// ══════════════════════════════════════════════════════════════════ blank
+// A tube that is on but showing nothing. Not simply black: the shader's
+// curvature, scanlines, grille and vignette still run over it, so it reads as
+// live glass rather than a hole. This is the one to start a new game from.
+export function blankScreen(ctx, W, H){
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.fillStyle = BG; ctx.fillRect(0,0,W,H);
+  const g = ctx.createRadialGradient(W/2,H*0.52,H*0.05, W/2,H*0.52,W*0.62);
+  g.addColorStop(0,   'rgba(70,150,110,0.14)');
+  g.addColorStop(0.55,'rgba(40,110,80,0.06)');
+  g.addColorStop(1,   'rgba(0,0,0,0)');
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+}
+
 // ── the registry props.js chooses from ───────────────────────────────────────
 // 'terminal' is ThreeUI's authored boot log and is handled inside the renderer,
 // so it is a string here rather than a function.
 export const SCREENS = {
-  terminal: 'terminal',
-  typing: typingGame,
+  blank: blankScreen,       // an empty tube — start here
+  terminal: 'terminal',     // ThreeUI's Zion boot log
+  typing: typingGame,       // the worked typing game
 };

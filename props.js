@@ -16,23 +16,42 @@
 //   canvas-2D function — see screens.js, which has a worked game to copy.
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// Theme keys, for `hideOn`: walnut (MOCHA), oldmac (PLATINUM), stone (STONE
-// AGE), gamer (RGB), typewriter (TYPEWRITER).
+// Theme keys, for `hideOn`: walnut (the only board in this build).
+
+// ── the shot ─────────────────────────────────────────────────────────────────
+// The camera is composed, not auto-fitted. It frames ONE thing; anything nearer
+// the lens (the keyboard) is deliberately allowed to run past the edges, which
+// is what gives the close-up-board / dead-on-tube look.
+export const SHOT = {
+  // ── SETTING THE ANGLE ──────────────────────────────────────────────────────
+  // free: true   -> drag to look around. The exact camera is printed top-left
+  //                 and copied to the clipboard when you click it.
+  // pose: {...}  -> paste that block here and the shot is locked to it.
+  //                 A pose always wins over the framing numbers below.
+  free: true,
+  pose: null,        // { position:[x,y,z], target:[x,y,z] }
+
+  // used only when there is no pose
+  focus: 'crt',      // which prop to frame. null = fit the whole scene instead
+  elevation: 4,      // degrees above the desk. 0 is dead level with the tube
+  fill: 0.62,        // how much of the frame's height the focus should occupy
+  aim: 0.52,         // where on the focus to point (0 its base, 1 its top)
+  lift: 0.06,        // nudge the whole shot up, as a fraction of frame height
+};
 
 export const PROPS = {
   crt: {
     model: 'https://cdn.jsdelivr.net/gh/akash-mondal/typemaster@v1.1.0/crt.glb',
 
-    screen: 'typing',   // what runs on the tube — see screens.js for the list
-                        //   'terminal' = ThreeUI's Zion boot log
-                        //   'typing'   = the typing game
+    screen: 'blank',    // what runs on the tube — see screens.js
+                        //   'blank' | 'terminal' | 'typing'
     anchor: 'behind',   // behind | infront | left | right — where it sits
-    widthFrac: 0.68,    // its width as a fraction of the board's width
-    gap: 0.34,          // space between it and the board, as a fraction of
+    widthFrac: 0.88,    // its width as a fraction of the board's width
+    gap: 0.55,          // space between it and the board, as a fraction of
                         //   board depth (behind/infront) or width (left/right)
     lift: 0,            // raise it off the ground; 0 sits it on the same
                         //   surface as the board
-    hideOn: ['typewriter'],
+    hideOn: [],
   },
 };
 

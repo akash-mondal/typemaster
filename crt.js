@@ -99,7 +99,10 @@ export async function buildCRT({ url, parent }){
   // then lay the effect across the face with the projected UVs above.
   const face = screenMesh ? planarScreenUVs(screenMesh) : null;
   const aspect = face ? face.width/face.height : 4/3;
-  const bufH = 768, bufW = Math.round(bufH*aspect);
+  // The picture buffer scales with the set. A larger CRT magnifies the same
+  // texture further, so holding this fixed would just make the image softer as
+  // the cabinet grew — the tube has to gain pixels, not only inches.
+  const bufH = 1000, bufW = Math.round(bufH*aspect);
   const screen = SCREENS[PROPS.crt.screen] ?? 'terminal';
   const crt = createCrtTerminal({ width:bufW, height:bufH, screen,
                                   getOptions: () => OPTIONS });

@@ -14,7 +14,7 @@ import { PACKS }  from './packs.js';
 import { THEMES } from './themes.js';
 import { buildTypewriter, makeVoice, TW } from './typewriter.js';
 import { buildCRT, buildPlainProp } from './crt.js';
-import { PROPS } from './props.js';
+import { PROPS, SHOT } from './props.js';
 import { INPUT } from './screens.js';
 
 const showErr = m => { const e=document.getElementById('err'); e.textContent=m; e.style.display='block'; };
@@ -25,6 +25,7 @@ window.addEventListener('unhandledrejection', e => showErr(String(e.reason&&e.re
 const CFG = {
   u: 1.905, w: 1.80, d: 1.80,           // key pitch and cap footprint
   press: { travel:0.38, downMs:42, upMs:105, overshoot:0.04 },
+  cameraElevation: 15,                  // degrees above the desk; 38 looked down on it
   master: 0.55,
 };
 
@@ -99,6 +100,9 @@ function configureAO(ao){
 }
 
 const controls = new OrbitControls(camera, renderer.domElement);
+// The shot is fixed. Nothing rotates, nothing drifts, nothing is draggable —
+// the camera is composed once by fitCamera and then left alone.
+controls.enabled = false;              // re-enabled below when SHOT.free is set
 controls.enableDamping = true; controls.dampingFactor = 0.06; controls.enablePan = false;
 controls.minPolarAngle = THREE.MathUtils.degToRad(14);
 controls.maxPolarAngle = THREE.MathUtils.degToRad(78);
@@ -555,6 +559,13 @@ function resetRoot(name){
   keys = []; byCode = new Map();
 }
 
+// At a low camera angle the floor plane's far edge draws a hard line across the
+// backdrop. Fog tinted to the same grey dissolves that horizon instead of
+// needing an ever-larger plane.
+function applyFog(T){
+  scene.fog = T.fog ? new THREE.Fog(T.fog.colour, T.fog.near, T.fog.far) : null;
+}
+
 function markPicker(name){
   document.querySelectorAll('#picker button').forEach(b =>
     b.classList.toggle('on', b.dataset.k === name));
@@ -567,6 +578,7 @@ async function buildModelTheme(name){
   resetRoot(name);
   renderer.toneMappingExposure = T.env.exposure;
   document.body.style.background = T.page;
+  applyFog(T);
   markPicker(name);
 
   const E = T.env;
@@ -621,6 +633,7 @@ function buildTheme(name){
 
   renderer.toneMappingExposure = T.env.exposure;
   document.body.style.background = T.page;
+  applyFog(T);
 
   // ---- keycaps
   const board = new THREE.Group();
@@ -1020,8 +1033,52 @@ function stepFX(now){
 // ══════════════════════════════════════════════════════════ camera fit
 const _v=new THREE.Vector3(), _r=new THREE.Vector3(), _u=new THREE.Vector3(),
       _dir=new THREE.Vector3(), _ctr=new THREE.Vector3(), _UP=new THREE.Vector3(0,1,0);
+// Frame one object at a chosen size, dead-on, and let everything closer to the
+// lens fall where it falls. This is a composed shot rather than a fit: the
+// keyboard is *meant* to be cut off by the bottom edge.
+function composeShot(){
+  // A composed shot imposes no distance limits. The full-scene fit sets
+  // min/maxDistance from what it measured, and that runs once on first load
+  // before the props exist — leaving its clamps behind and pinning the zoom.
+  controls.minDistance = 0;
+  controls.maxDistance = Infinity;
+
+  // an explicit pose is the whole answer: use it exactly as given
+  if(SHOT.pose && SHOT.pose.position && SHOT.pose.target){
+    camera.position.fromArray(SHOT.pose.position);
+    controls.target.fromArray(SHOT.pose.target);
+    camera.lookAt(controls.target);
+    camera.updateProjectionMatrix(); controls.update();
+    return true;
+  }
+  const obj = SHOT.focus && propObjects.get(SHOT.focus);
+  if(!obj || !obj.group.visible) return false;
+  props.updateMatrixWorld(true);
+  const b = new THREE.Box3().setFromObject(obj.group);
+  if(b.isEmpty()) return false;
+  const size = b.getSize(new THREE.Vector3());
+  const el = THREE.MathUtils.degToRad(SHOT.elevation);
+  const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov)/2);
+
+  const target = new THREE.Vector3(
+    (b.min.x + b.max.x)/2,
+    b.min.y + size.y*(SHOT.aim ?? 0.5),
+    (b.min.z + b.max.z)/2);
+  const dist = (size.y / Math.max(0.05, SHOT.fill)) / (2*tanV);
+
+  camera.position.set(
+    target.x,
+    target.y + Math.sin(el)*dist + dist*2*tanV*(SHOT.lift ?? 0),
+    target.z + Math.cos(el)*dist);
+  camera.lookAt(target);
+  camera.updateProjectionMatrix();
+  controls.target.copy(target); controls.update();
+  return true;
+}
+
 function fitCamera(){
   if(!root) return;
+  if(composeShot()) return;
   // Box3.expandByObject refreshes only the object's own world matrix, not its
   // ancestors'. A freshly-added glTF hierarchy has never been rendered, so its
   // parent matrices are still identity and every leaf lands in the wrong place.
@@ -1046,7 +1103,7 @@ function fitCamera(){
     if(o.isMesh && o.material && o.material.depthWrite) fitBox.expandByObject(o);
   });
   fitBox.getCenter(_ctr);
-  const el = THREE.MathUtils.degToRad(38);
+  const el = THREE.MathUtils.degToRad(CFG.cameraElevation);
   _dir.set(0, Math.sin(el), Math.cos(el)).normalize();
   _r.crossVectors(_dir,_UP).normalize(); _u.crossVectors(_r,_dir).normalize();
   const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov)/2);
@@ -1169,8 +1226,38 @@ function stepKeys(dt){
   }
 }
 
+// ── shot tuning ──────────────────────────────────────────────────────────────
+// With SHOT.free the camera is draggable and the exact pose is printed live, so
+// an angle found by hand can be pasted straight back into props.js. Click the
+// readout to copy it.
+const poseLine = () => {
+  const r = v => Math.round(v*100)/100;
+  const p = camera.position, t = controls.target;
+  return `pose: { position:[${r(p.x)}, ${r(p.y)}, ${r(p.z)}], `
+       + `target:[${r(t.x)}, ${r(t.y)}, ${r(t.z)}] },`;
+};
+if(SHOT.free){
+  controls.enabled = true;
+  controls.enableZoom = true;
+  controls.enablePan = true;           // needed to compose, not just orbit
+  controls.minDistance = 0;
+  controls.maxDistance = Infinity;
+  const hudEl = document.getElementById('hud');
+  hudEl.style.pointerEvents = 'auto';
+  hudEl.style.cursor = 'pointer';
+  hudEl.title = 'click to copy this pose';
+  hudEl.addEventListener('click', () => {
+    const line = poseLine();
+    navigator.clipboard?.writeText(line);
+    hudEl.dataset.copied = '1';
+    setTimeout(()=>{ delete hudEl.dataset.copied; }, 1200);
+  });
+}
+
 // ══════════════════════════════════════════════════════════ theme picker
 const picker = document.getElementById('picker');
+// with a single board there is nothing to pick between
+if(Object.keys(THEMES).length < 2) picker.style.display = 'none';
 for(const [k,T] of Object.entries(THEMES)){
   const b = document.createElement('button');
   b.textContent = T.label; b.dataset.k = k;
@@ -1209,7 +1296,7 @@ renderer.setAnimationLoop(now=>{
   renderer.info.reset();
   const dt = Math.min(0.05,(now-last)/1000); last=now;
   stepKeys(dt); stepFX(now);
-  if(root && root.userData.knob) root.userData.knob.rotation.y += dt*0.28;
+  // (the volume knob used to idle-spin here; the scene is static now)
   if(root && root.userData.step) root.userData.step(dt);
   for(const p of propObjects.values()) if(p.step) p.step(now);
   controls.update();
@@ -1223,10 +1310,13 @@ renderer.setAnimationLoop(now=>{
     aoComposer.render();
   } else renderer.render(scene,camera);
   if(++frames===60){
-    document.getElementById('hud').textContent =
-      `TYPE MASTER · ${THEMES[activeTheme].label} · type on your real keyboard\n`+
-      `${Math.round(60000/(performance.now()-t0))} fps · ${renderer.info.render.calls} calls · `+
-      `${renderer.info.render.triangles} tris · ${keys.length} keys`;
+    const hudEl = document.getElementById('hud');
+    hudEl.textContent = SHOT.free
+      ? `DRAG TO SET THE ANGLE — click here to copy\n${poseLine()}` +
+        (hudEl.dataset.copied ? '\ncopied' : '')
+      : `TYPE MASTER · ${THEMES[activeTheme].label} · type on your real keyboard\n`+
+        `${Math.round(60000/(performance.now()-t0))} fps · ${renderer.info.render.calls} calls · `+
+        `${renderer.info.render.triangles} tris · ${keys.length} keys`;
     frames=0; t0=performance.now();
   }
  } catch(e){
