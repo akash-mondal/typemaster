@@ -94,7 +94,7 @@ export function typingGame(ctx, W, H, seconds){
 
   ctx.textAlign = 'left';
   ctx.font = mono(head);
-  glow(ctx, 'TYPE MASTER', W*0.08, H*0.10, GREEN, head);
+  glow(ctx, 'TYPEMAXX', W*0.08, H*0.10, GREEN, head);
   ctx.textAlign = 'right';
   glow(ctx, `WPM ${String(wpm).padStart(3)}`, W*0.92, H*0.10, AMBER, head,
        'rgba(255,150,52,0.9)');

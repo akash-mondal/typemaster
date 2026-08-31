@@ -1324,7 +1324,7 @@ renderer.setAnimationLoop(now=>{
     hudEl.textContent = SHOT.free
       ? `DRAG TO SET THE ANGLE — click here to copy\n${poseLine()}` +
         (hudEl.dataset.copied ? '\ncopied' : '')
-      : `TYPE MASTER · ${THEMES[activeTheme].label} · type on your real keyboard\n`+
+      : `TYPEMAXX · ${THEMES[activeTheme].label} · type on your real keyboard\n`+
         `${Math.round(60000/(performance.now()-t0))} fps · ${renderer.info.render.calls} calls · `+
         `${renderer.info.render.triangles} tris · ${keys.length} keys`;
     frames=0; t0=performance.now();

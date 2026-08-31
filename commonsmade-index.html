@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="TYPEMAXX typing game intro screen">
+  <title>TYPEMAXX</title>
+
+  <!-- three.js and its addons. Required: the modules below import "three" by
+       name and will not resolve without this map. -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.1/examples/jsm/"
+      }
+    }
+  </script>
+
+  <style>
+    :root {
+      --color-orange: #FF5A1F;
+      --color-white: #FFFFFF;
+      --color-white-60: rgba(255, 255, 255, 0.60);
+      --color-white-42: rgba(255, 255, 255, 0.42);
+      --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", Inter, system-ui, sans-serif;
+      --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body { color: var(--color-white); font-synthesis: none; background: #8A8A8A; }
+
+    /* The 3D scene. It fills the page and sits behind everything else; the
+       theme sets the page background itself (grey — themes.js, `page:`). */
+    #stage { position: fixed; inset: 0; z-index: 0; }
+    #stage canvas { display: block; }
+
+    /* Copy floats over the scene and must never eat the pointer. */
+    .overlay {
+      position: fixed; inset: 0; z-index: 2;
+      display: flex; flex-direction: column; align-items: center;
+      padding: clamp(14px, 4vh, 40px) clamp(16px, 5vw, 32px) 0;
+      text-align: center; pointer-events: none;
+    }
+    .kicker {
+      margin: 0 0 14px; color: var(--color-white-42);
+      font-family: var(--font-mono); font-size: clamp(9px, 0.7vw, 10px);
+      letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;
+    }
+    .hero-title {
+      margin: 0; color: var(--color-white); font-family: var(--font-display);
+      font-size: clamp(34px, 6.4vw, 88px); font-style: italic; font-weight: 900;
+      line-height: 0.88; letter-spacing: -0.055em; text-transform: uppercase;
+      text-shadow: 0 2px 30px rgba(0,0,0,0.35);
+    }
+    .hero-title > span { display: block; }
+    .hero-title .accent { color: var(--color-orange); white-space: nowrap; }
+    .hero-title .caret {
+      display: inline-block; width: clamp(3px, 0.28vw, 4px); height: 0.72em;
+      margin-left: clamp(4px, 0.5vw, 7px); background: var(--color-orange);
+      vertical-align: baseline; animation: blink 1.06s step-end infinite;
+    }
+    .subtitle {
+      max-width: 460px; margin: 16px auto 0; color: var(--color-white-60);
+      font-family: var(--font-display); font-size: clamp(13px, 1.05vw, 16px);
+      line-height: 1.55; text-shadow: 0 1px 16px rgba(0,0,0,0.45);
+    }
+    @keyframes blink { 0%, 48% { opacity: 1; } 49%, 100% { opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { .hero-title .caret { animation: none; } }
+
+    /* app.js writes to these three. #hud is the fps/pose readout, #picker is
+       the theme switcher (auto-hidden while there is only one board). */
+    #hud {
+      position: fixed; left: 14px; top: 12px; z-index: 3;
+      font: 11px/1.6 var(--font-mono); color: rgba(255,255,255,.40);
+      letter-spacing: .08em; white-space: pre; pointer-events: none;
+    }
+    #picker { position: fixed; left: 50%; transform: translateX(-50%); bottom: 26px; z-index: 3; display: flex; gap: 8px; }
+    #picker button {
+      font: 10px/1 var(--font-mono); letter-spacing: .14em; color: rgba(255,255,255,.78);
+      background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.16);
+      padding: 10px 15px; border-radius: 999px; cursor: pointer; backdrop-filter: blur(12px);
+    }
+    #picker button.on { background: rgba(255,255,255,.17); border-color: rgba(255,255,255,.42); color: #fff; }
+    #err {
+      position: fixed; inset: 0 0 auto 0; z-index: 10; display: none;
+      max-height: 40vh; overflow: auto; padding: 12px 16px;
+      background: #A40000; border-bottom: 2px solid #FFB3B3; color: #fff;
+      font: 12px/1.45 var(--font-mono); white-space: pre-wrap; word-break: break-word;
+    }
+  </style>
+</head>
+<body>
+  <div id="err" role="alert" aria-live="assertive"></div>
+  <div id="stage" aria-hidden="true"></div>
+
+  <div class="overlay">
+    <p class="kicker">TYPE FASTER · READ FASTER · SHIP FASTER</p>
+    <h1 class="hero-title">
+      <span>TYPE</span>
+      <span class="accent">MAXX<span class="caret" aria-hidden="true"></span></span>
+    </h1>
+    <p class="subtitle">Improve your typing and reading speeds to vibe code faster.</p>
+  </div>
+
+  <div id="hud">TYPEMAXX</div>
+  <div id="picker"></div>
+
+  <!-- The whole scene: walnut keyboard, CRT, materials, lighting, camera,
+       key animation and switch sounds. Everything else — the other modules and
+       both .glb models — is pulled from the same pinned tag automatically,
+       because the relative imports inside app.js resolve against this URL.
+       Nothing to upload.
+
+       To change things, see that tag's files:
+         props.js    where the CRT sits, and the locked camera
+         screens.js  what runs on the tube (the game goes here)
+         themes.js   the keyboard, and the page background colour
+       Copy any of them into this project to override it. -->
+  <script type="module"
+          src="https://cdn.jsdelivr.net/gh/akash-mondal/typemaster@v1.3.0/app.js"></script>
+</body>
+</html>
