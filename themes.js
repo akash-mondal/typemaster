@@ -204,7 +204,6 @@ export const THEMES = {
     // served from a CDN so a Commonsmade project is pure code with no asset to
     // place by hand. Draco-compressed: 0.56 MB, full geometry.
     model: 'https://cdn.jsdelivr.net/gh/akash-mondal/typemaster@v1.0.1/typewriter.glb',
-    noCRT: true,                             // a typewriter needs no monitor
     // black crinkle enamel eats light, so the key is hot and the rim does the
     // work of separating the machine from the backdrop
     // a dark studio, not a bright one: the machine is black enamel and only

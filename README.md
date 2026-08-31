@@ -42,8 +42,10 @@ packs.js        4 mechanical switch sample sets, base64 MP3 (see licence below)
 typewriter.js   the Smith Corona rig: key levers, type bars, carriage, synth voice
 tw-map.js       generated: key code -> keycap position + type bar
 typewriter.glb  the model (Draco)
-crt.js          the CRT television prop: finish, phosphor screen, placement
+crt.js          the CRT television prop: finish, screen, placement
+crt-terminal.js ThreeUI's CRT "terminal" screen effect, ported (see licences)
 crt.glb         the television (Draco)
+props.js        WHERE PROPS GO — edit this to move things around
 tools/          Blender scripts that build the .glb, and why they do what they do
 ```
 
@@ -72,6 +74,39 @@ The source .blend is 56 MB but the television is only 8,959 polys — the weight
 was an 8K world HDRI and five 3K Poliigon overlay maps that glTF cannot carry.
 Stripped and Draco-compressed it is **0.63 MB**.
 
+## Moving things around
+
+`props.js` is the whole interface for placing objects. It holds a table of
+props and nothing else you need to touch:
+
+```js
+crt: {
+  model: './crt.glb',
+  anchor: 'behind',   // behind | infront | left | right
+  widthFrac: 0.68,    // width, as a fraction of the board's width
+  gap: 0.34,          // space to the board, as a fraction of its depth
+  lift: 0,            // raise off the ground
+  hideOn: ['typewriter'],
+}
+```
+
+Everything is relative and measured at runtime, so you never need a board's
+dimensions or any three.js maths. The boards differ enormously — the 60%
+Platinum is 61 keys, the typewriter is a different machine entirely — and a prop
+re-measures and re-places itself whenever the theme changes. To add a prop, copy
+the block, point `model` at a `.glb` and give it an anchor.
+
+## The CRT screen
+
+The tube runs ThreeUI's `CrtBackground`, variant `terminal`: the authored 19-row
+Zion boot log typing itself onto green phosphor, through the authored curvature,
+scanline, aperture-grille, halation and vignette shader.
+
+It is mapped with UVs projected onto the tube's own face rather than the
+model's authored UVs, which exist for the dust and smudge overlays and would put
+the image somewhere arbitrary. The offscreen buffer is built at the tube's
+measured aspect so nothing is stretched.
+
 ## Licences
 
 - **`typewriter.glb`** is derived from *"Simple Typewriter"* on
@@ -86,6 +121,13 @@ Stripped and Draco-compressed it is **0.63 MB**.
   the downloaded archive and still needs to be filled in here** — take it from
   the blend page above before distributing. Its textures are from Poliigon and
   the original asks that they be credited too.
+- **`crt-terminal.js`** is ThreeUI's `CrtBackground` component (variant
+  `terminal`), ported from the registered source bundle at
+  `https://threeui.com/source-code/crt.json`, revision `860a1eb1d4c9`. The
+  shaders, boot log, colour table and style block are verbatim from that bundle
+  and every file's SHA-256 was verified against the manifest before porting.
+  **ThreeUI's own licence terms are not stated in that bundle — check them
+  before distributing.**
 - **`packs.js`** contains switch samples from
   [tplai/kbsim](https://github.com/tplai/kbsim) (MIT).
 - The code in this repository is otherwise free to use.

@@ -14,6 +14,7 @@ import { PACKS }  from './packs.js';
 import { THEMES } from './themes.js';
 import { buildTypewriter, makeVoice, TW } from './typewriter.js';
 import { buildCRT } from './crt.js';
+import { PROPS } from './props.js';
 
 const showErr = m => { const e=document.getElementById('err'); e.textContent=m; e.style.display='block'; };
 window.onerror = (m,s,l,c,e) => showErr(e&&e.stack ? e.stack : `${m} @ ${s}:${l}`);
@@ -464,7 +465,7 @@ let root = null, keys = [], byCode = new Map(), fitBox = new THREE.Box3();
 // Props live outside `root` because root is torn down and rebuilt on every
 // theme switch; the television is not a theme, it stands behind all of them.
 const props = new THREE.Group(); scene.add(props);
-let crt = null, typed = '';
+let crt = null;
 
 const _bb = new THREE.Box3();
 function boardBounds(){
@@ -480,8 +481,9 @@ function boardBounds(){
 function placeCRT(){
   if(!crt) return;
   // the typewriter is its own complete machine; a monitor behind it makes no sense
-  const T = THEMES[activeTheme];
-  crt.group.visible = !(T && T.noCRT);
+  // a prop hides itself on the themes listed in props.js
+  const hide = (PROPS.crt.hideOn || []).includes(activeTheme);
+  crt.group.visible = !hide;
   if(crt.group.visible && root && !boardBounds().isEmpty()) crt.place(boardBounds());
 }
 let activeTheme = null;
@@ -1131,14 +1133,10 @@ function release(code){
   if(code==='Space') voice.spaceUp(); else if(code==='Enter') voice.enterUp();
   else if(code==='Backspace') voice.backUp(); else voice.up();
 }
+// The CRT runs ThreeUI's authored terminal variant, which types its own Zion
+// boot log — the screen is not an echo of the keyboard.
 addEventListener('keydown', e=>{
   press(e.code);
-  if(crt){
-    if(e.code === 'Backspace') typed = typed.slice(0,-1);
-    else if(e.code === 'Enter') typed = '';
-    else if(e.key && e.key.length === 1) typed = (typed + e.key).slice(-40);
-    crt.setText(typed);
-  }
   if(e.code==='Space'||e.code.startsWith('Arrow')) e.preventDefault();
 });
 addEventListener('keyup',   e=>{ release(e.code); });
@@ -1174,7 +1172,7 @@ for(const [k,T] of Object.entries(THEMES)){
 }
 buildTheme(Object.keys(THEMES)[0]);
 
-buildCRT({ url: './crt.glb', parent: props })
+buildCRT({ url: PROPS.crt.model, parent: props })
   .then(c => { crt = c; placeCRT(); fitCamera(); })
   .catch(e => showErr('crt: ' + (e.stack || e.message)));
 
