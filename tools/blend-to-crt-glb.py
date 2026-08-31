@@ -7,6 +7,11 @@ for n in ['Camera','Empty','Sun','Sun.001','Plane']:
 bpy.context.scene.world = None          # an 8K HDRI is a third of the file
 
 # ── name the parts so JS can find them ─────────────────────────────────────
+# The artist yawed the set 238.58 deg about Z to pose it for the beauty render
+# (pure Z rotation, no pitch or roll, scale 1). Zero it and the mesh returns to
+# its authored frame, which faces -Y in Blender = +Z once glTF flips to Y-up.
+# Correcting this here beats inferring it at runtime from averaged normals.
+bpy.data.objects['Cube'].rotation_euler = (0.0, 0.0, 0.0)
 bpy.data.objects['Cube'].name = 'CRT'
 # Cube.001 is a duplicate front panel: 490 tris carrying a second screen face
 # that protrudes past the cabinet and double-renders the tube. Drop it here

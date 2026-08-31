@@ -76,18 +76,6 @@ export async function buildCRT({ url, parent }){
   const phosphor = screenTexture();
   let screenMat = null;
 
-  // The television is modelled facing -X: 374 of 441 face normals on the screen
-  // point that way, and the speaker grille agrees, which settles it. (The
-  // duplicate front panel that used to double-render the tube is removed at
-  // export now — see tools/blend-to-crt-glb.py.)
-  const triCount = o => o.geometry.index
-    ? o.geometry.index.count/3 : o.geometry.attributes.position.count/3;
-  let realScreen = null;
-  model.traverse(o => {
-    if(o.isMesh && o.material && o.material.name === 'CRT_SCREEN' &&
-       (!realScreen || triCount(o) > triCount(realScreen))) realScreen = o;
-  });
-
   // Same story as the typewriter: the Cycles shader graph does not survive the
   // export, so the finish is set here rather than in Blender.
   const graded = new Set();
@@ -102,50 +90,29 @@ export async function buildCRT({ url, parent }){
       m.envMapIntensity = 0.55;
     } else if(m.name === 'CRT_GRILLE'){
       m.color.setHex(0x8A8378); m.roughness = 0.92; m.metalness = 0.0;
-      m.envMapIntensity = 0.7;
+      m.envMapIntensity = 0.70;
       if(m.map) m.map.anisotropy = 8;
     } else if(m.name === 'CRT_SCREEN'){
-      // shared material, but only the real screen mesh is left visible
       m.color.setHex(0x05070A); m.roughness = 0.10; m.metalness = 0.0;
       m.emissive = new THREE.Color(0xFFFFFF);
       m.emissiveMap = phosphor.tex;
       m.emissiveIntensity = 2.6;
-      m.envMapIntensity = 1.4;          // glass should catch the room
+      m.envMapIntensity = 1.40;         // the glass should catch the room
       screenMat = m;
     }
     m.needsUpdate = true;
   });
 
-  // pivot carries the orientation so `place` can measure the ROTATED bounds —
-  // before rotating, the model's X extent is its depth, not its width
+  // The set already leaves Blender square-on and facing +Z: the artist's
+  // 238.58 deg pose rotation is zeroed at export (tools/blend-to-crt-glb.py),
+  // which is exact — inferring it here from averaged normals left it visibly
+  // skewed when seen from above. The pivot stays only so `place` has a single
+  // node to measure.
   const pivot = new THREE.Group();
-  pivot.rotation.y = Math.PI/2;          // -X front -> +Z, facing the camera
   pivot.add(model);
   const group = new THREE.Group();
   group.add(pivot);
   parent.add(group);
-
-  // The set was also posed at an angle for the original beauty render. Cancel
-  // that from the geometry rather than a guessed constant: average the normals
-  // of the front-most fifth of the screen's vertices — the rest of that mesh is
-  // tube sidewall, which drags a naive average ~6 degrees off.
-  if(realScreen){
-    group.updateMatrixWorld(true);
-    const g = realScreen.geometry, p = g.attributes.position, n = g.attributes.normal;
-    if(p && n){
-      const v = new THREE.Vector3(), zs = new Float32Array(p.count);
-      for(let i=0;i<p.count;i++)
-        zs[i] = v.set(p.getX(i),p.getY(i),p.getZ(i)).applyMatrix4(realScreen.matrixWorld).z;
-      const cut = [...zs].sort((a,b)=>b-a)[Math.floor(p.count*0.2)];
-      const acc = new THREE.Vector3();
-      for(let i=0;i<p.count;i++)
-        if(zs[i] >= cut) acc.add(v.set(n.getX(i),n.getY(i),n.getZ(i)));
-      if(acc.lengthSq() > 1e-9){
-        acc.normalize().applyQuaternion(realScreen.getWorldQuaternion(new THREE.Quaternion()));
-        pivot.rotation.y -= Math.atan2(acc.x, acc.z);
-      }
-    }
-  }
 
   return {
     group, model, screenMat,
