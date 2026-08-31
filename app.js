@@ -1045,6 +1045,11 @@ function composeShot(){
 
   // an explicit pose is the whole answer: use it exactly as given
   if(SHOT.pose && SHOT.pose.position && SHOT.pose.target){
+    // controls.update() re-derives the camera from its own spherical state and
+    // applies the polar clamp, which silently pulled a locked 86 degree shot
+    // back to the 78 degree limit. A pose is authoritative, so drop the limits.
+    controls.minPolarAngle = 0;
+    controls.maxPolarAngle = Math.PI;
     camera.position.fromArray(SHOT.pose.position);
     controls.target.fromArray(SHOT.pose.target);
     camera.lookAt(controls.target);
