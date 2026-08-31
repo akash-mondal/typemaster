@@ -1242,6 +1242,11 @@ if(SHOT.free){
   controls.enablePan = true;           // needed to compose, not just orbit
   controls.minDistance = 0;
   controls.maxDistance = Infinity;
+  // The 14-78 degree polar clamp keeps the boards from being viewed from silly
+  // angles in normal use, but 90 degrees is level with the tube — so the cap sat
+  // 12 degrees short of the dead-on shot. Open it right up while composing.
+  controls.minPolarAngle = 0;
+  controls.maxPolarAngle = Math.PI;
   const hudEl = document.getElementById('hud');
   hudEl.style.pointerEvents = 'auto';
   hudEl.style.cursor = 'pointer';
