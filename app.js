@@ -13,8 +13,9 @@ import { TessellateModifier } from 'three/addons/modifiers/TessellateModifier.js
 import { PACKS }  from './packs.js';
 import { THEMES } from './themes.js';
 import { buildTypewriter, makeVoice, TW } from './typewriter.js';
-import { buildCRT } from './crt.js';
+import { buildCRT, buildPlainProp } from './crt.js';
 import { PROPS } from './props.js';
+import { INPUT } from './screens.js';
 
 const showErr = m => { const e=document.getElementById('err'); e.textContent=m; e.style.display='block'; };
 window.onerror = (m,s,l,c,e) => showErr(e&&e.stack ? e.stack : `${m} @ ${s}:${l}`);
@@ -466,6 +467,7 @@ let root = null, keys = [], byCode = new Map(), fitBox = new THREE.Box3();
 // theme switch; the television is not a theme, it stands behind all of them.
 const props = new THREE.Group(); scene.add(props);
 let crt = null;
+const propObjects = new Map();      // id -> built prop, from the PROPS table
 
 const _bb = new THREE.Box3();
 function boardBounds(){
@@ -1133,12 +1135,17 @@ function release(code){
   if(code==='Space') voice.spaceUp(); else if(code==='Enter') voice.enterUp();
   else if(code==='Backspace') voice.backUp(); else voice.up();
 }
-// The CRT runs ThreeUI's authored terminal variant, which types its own Zion
-// boot log — the screen is not an echo of the keyboard.
+// One keydown drives both the 3D keycaps and whatever is running on the CRT,
+// so a game on the tube can never drift out of step with the board.
 addEventListener('keydown', e=>{
   press(e.code);
+  INPUT.down.add(e.code);
+  if(e.code === 'Backspace') INPUT.backspace();
+  else if(e.code === 'Enter') INPUT.enter();
+  else if(e.key && e.key.length === 1) INPUT.push(e.key);
   if(e.code==='Space'||e.code.startsWith('Arrow')) e.preventDefault();
 });
+addEventListener('keyup', e => INPUT.down.delete(e.code));
 addEventListener('keyup',   e=>{ release(e.code); });
 addEventListener('pointerdown', ()=>initAudio());
 
@@ -1172,9 +1179,18 @@ for(const [k,T] of Object.entries(THEMES)){
 }
 buildTheme(Object.keys(THEMES)[0]);
 
-buildCRT({ url: PROPS.crt.model, parent: props })
-  .then(c => { crt = c; placeCRT(); fitCamera(); })
-  .catch(e => showErr('crt: ' + (e.stack || e.message)));
+// Build everything the PROPS table lists. An entry with a `screen` is a CRT
+// (it has a live tube); anything else is a plain model.
+(async () => {
+  for(const [id, spec] of Object.entries(PROPS)){
+    const built = spec.screen !== undefined
+      ? await buildCRT({ url: spec.model, parent: props })
+      : await buildPlainProp({ url: spec.model, parent: props, spec });
+    propObjects.set(id, built);
+    if(spec.screen !== undefined) crt = built;   // the one with a step()
+  }
+  placeCRT(); fitCamera();
+})().catch(e => showErr('props: ' + (e.stack || e.message)));
 
 // ══════════════════════════════════════════════════════════ loop
 window.__TW = TW;
@@ -1195,7 +1211,7 @@ renderer.setAnimationLoop(now=>{
   stepKeys(dt); stepFX(now);
   if(root && root.userData.knob) root.userData.knob.rotation.y += dt*0.28;
   if(root && root.userData.step) root.userData.step(dt);
-  if(crt) crt.step(now);
+  for(const p of propObjects.values()) if(p.step) p.step(now);
   controls.update();
   const T = THEMES[activeTheme];
   if(T && T.bloom){

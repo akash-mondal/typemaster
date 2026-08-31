@@ -172,7 +172,8 @@ export const CRT_DEFAULTS = { speed:1, typeSpeed:1, motion:1 };
 // `width`/`height` are the offscreen backing store: give it the aspect of the
 // screen mesh it will be mapped onto so nothing is stretched.
 export function createCrtTerminal({ width = 1024, height = 768,
-                                   getOptions = () => CRT_DEFAULTS } = {}){
+                                   getOptions = () => CRT_DEFAULTS,
+                                   screen = 'terminal', redrawMs = 0 } = {}){
   const canvas = document.createElement("canvas");
   const host = { getBoundingClientRect: () => ({ width, height }) };
 
@@ -349,11 +350,22 @@ export function createCrtTerminal({ width = 1024, height = 768,
     render(now){
       const options = { ...CRT_DEFAULTS, ...getOptions() };
       const seconds = (now - startedAt) * 0.001 * options.speed;
-      if(!done){
-        typed += 4.4 * options.typeSpeed;
-        if(typed >= TOTAL){ typed = TOTAL; done = true; }
+      if(typeof screen === 'function'){
+        // The authored renderer drives its non-terminal variants exactly this
+        // way — a 2D painter into the screen canvas, then the CRT shader over
+        // the top. Anything drawable is therefore a valid screen, which is what
+        // makes a game possible here.
+        if(now - lastTextAt >= redrawMs || textDirty){
+          screen(textContext, bw, bh, seconds, now);
+          lastTextAt = now; textDirty = true;
+        }
+      } else {
+        if(!done){
+          typed += 4.4 * options.typeSpeed;
+          if(typed >= TOTAL){ typed = TOTAL; done = true; }
+        }
+        maybeRedrawText(now);
       }
-      maybeRedrawText(now);
       if(textDirty) uploadTexture();
       gl.useProgram(program);
       gl.uniform1f(uTime, seconds);

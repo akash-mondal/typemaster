@@ -12,6 +12,8 @@
 // TO MOVE A PROP: edit its numbers below. Nothing else.
 // TO ADD A PROP:  copy a block, give it a new key and a model URL.
 // TO HIDE A PROP on some boards: list their theme keys in `hideOn`.
+// TO CHANGE WHAT IS ON THE CRT: set `screen`. Writing a new one is a single
+//   canvas-2D function — see screens.js, which has a worked game to copy.
 // ─────────────────────────────────────────────────────────────────────────────
 //
 // Theme keys, for `hideOn`: walnut (MOCHA), oldmac (PLATINUM), stone (STONE
@@ -21,6 +23,9 @@ export const PROPS = {
   crt: {
     model: './crt.glb',
 
+    screen: 'typing',   // what runs on the tube — see screens.js for the list
+                        //   'terminal' = ThreeUI's Zion boot log
+                        //   'typing'   = the typing game
     anchor: 'behind',   // behind | infront | left | right — where it sits
     widthFrac: 0.68,    // its width as a fraction of the board's width
     gap: 0.34,          // space between it and the board, as a fraction of

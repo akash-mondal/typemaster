@@ -14,6 +14,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { createCrtTerminal } from './crt-terminal.js';
 import { PROPS, placeProp } from './props.js';
+import { SCREENS } from './screens.js';
 
 const DRACO_CDN = 'https://cdn.jsdelivr.net/npm/three@0.160.1/examples/jsm/libs/draco/';
 
@@ -54,6 +55,31 @@ function planarScreenUVs(mesh){
   return { width:w, height:h };
 }
 
+// A prop with no `screen` is just a model: load it, let it cast and receive
+// shadows, and place it from its props.js entry. This is what makes props.js
+// genuinely general rather than a CRT-shaped hole.
+export async function buildPlainProp({ url, parent, spec = {} }){
+  const gltf = await loader().loadAsync(url);
+  const model = gltf.scene;
+  model.traverse(o => { if(o.isMesh) o.castShadow = o.receiveShadow = true; });
+  const pivot = new THREE.Group(); pivot.add(model);
+  const group = new THREE.Group(); group.add(pivot);
+  parent.add(group);
+  return {
+    group, model,
+    place(boardBox, opts = {}){
+      return placeProp(THREE, group, pivot, boardBox, { ...spec, ...opts });
+    },
+    dispose(){
+      model.traverse(o => {
+        if(!o.isMesh) return;
+        o.geometry.dispose();
+        (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m && m.dispose());
+      });
+    },
+  };
+}
+
 // The props the brief configures <CrtBackground variant="terminal" ... /> with.
 // hue / saturation / brightness / opacity are CSS filters on the authored
 // component and have no meaning for a texture, so they are not carried here;
@@ -74,7 +100,9 @@ export async function buildCRT({ url, parent }){
   const face = screenMesh ? planarScreenUVs(screenMesh) : null;
   const aspect = face ? face.width/face.height : 4/3;
   const bufH = 768, bufW = Math.round(bufH*aspect);
-  const crt = createCrtTerminal({ width:bufW, height:bufH, getOptions: () => OPTIONS });
+  const screen = SCREENS[PROPS.crt.screen] ?? 'terminal';
+  const crt = createCrtTerminal({ width:bufW, height:bufH, screen,
+                                  getOptions: () => OPTIONS });
   const phosphor = new THREE.CanvasTexture(crt.canvas);
   phosphor.colorSpace = THREE.SRGBColorSpace;
   // the offscreen canvas is top-origin and these UVs put v=0 at the bottom of
@@ -98,12 +126,16 @@ export async function buildCRT({ url, parent }){
       m.envMapIntensity = 0.70;
       if(m.map) m.map.anisotropy = 8;
     } else if(m.name === 'CRT_SCREEN'){
-      m.color.setHex(0x05070A); m.roughness = 0.10; m.metalness = 0.0;
+      // No room reflection on the glass. A real tube does catch the room, but
+      // the mirrored highlight sat straight over the middle of the picture and
+      // made it unreadable — and this screen exists to be read. The shader's own
+      // authored `sheen` term still gives it a little glass, without the blob.
+      m.color.setHex(0x05070A); m.roughness = 0.62; m.metalness = 0.0;
       m.emissive = new THREE.Color(0xFFFFFF);
       m.emissiveMap = phosphor;
       m.map = phosphor;                 // the tube is its own light source
-      m.emissiveIntensity = 1.35;
-      m.envMapIntensity = 1.40;         // the glass should catch the room
+      m.emissiveIntensity = 1.55;
+      m.envMapIntensity = 0.0;
       screenMat = m;
     }
     m.needsUpdate = true;
@@ -128,6 +160,7 @@ export async function buildCRT({ url, parent }){
     place(boardBox, opts = {}){
       return placeProp(THREE, group, pivot, boardBox, { ...PROPS.crt, ...opts });
     },
+    spec: PROPS.crt,
 
     dispose(){
       model.traverse(o => {
