@@ -1339,7 +1339,11 @@ let bgScene = null, bgCanvas = null, bgTexture = null;
 (async () => {
   const spec = SCENE.background;
   if(!spec || !spec.module) return;
-  const mod = await import(spec.module);
+  // Resolve against the PAGE, not this file. app.js is served from a CDN, so a
+  // dynamic import of '/temple/x.js' would otherwise resolve against the CDN
+  // origin and 404 — the module lives in the project using it.
+  const url = new URL(spec.module, document.baseURI).href;
+  const mod = await import(/* @vite-ignore */ url);
   const make = mod[spec.export] || mod.default;
   if(typeof make !== 'function')
     throw new Error(`background: ${spec.module} has no export ${spec.export || 'default'}`);
