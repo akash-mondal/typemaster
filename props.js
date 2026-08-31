@@ -43,10 +43,10 @@ export const SHOT = {
 
 export const PROPS = {
   crt: {
-    model: 'https://cdn.jsdelivr.net/gh/akash-mondal/typemaster@v1.1.0/crt.glb',
+    model: 'https://cdn.jsdelivr.net/gh/akash-mondal/typemaster@v1.4.0/crt.glb',
 
-    screen: 'blank',    // what runs on the tube — see screens.js
-                        //   'blank' | 'terminal' | 'typing'
+    screen: 'title',    // what runs on the tube — see screens.js
+                        //   'title' | 'blank' | 'terminal' | 'typing'
     anchor: 'behind',   // behind | infront | left | right — where it sits
     widthFrac: 0.88,    // its width as a fraction of the board's width
     gap: 0.55,          // space between it and the board, as a fraction of

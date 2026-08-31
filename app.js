@@ -1268,6 +1268,9 @@ if(SHOT.free){
 const picker = document.getElementById('picker');
 // with a single board there is nothing to pick between
 if(Object.keys(THEMES).length < 2) picker.style.display = 'none';
+// The stats readout is a development aid, not part of the piece. It only
+// appears while the shot is being composed, where it prints the live pose.
+document.getElementById('hud').style.display = SHOT.free ? 'block' : 'none';
 for(const [k,T] of Object.entries(THEMES)){
   const b = document.createElement('button');
   b.textContent = T.label; b.dataset.k = k;

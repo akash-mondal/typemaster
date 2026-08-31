@@ -134,6 +134,58 @@ export function typingGame(ctx, W, H, seconds){
   }
 }
 
+// ══════════════════════════════════════════════════════════════════ title
+// The intro card, drawn ON the tube rather than floated over it as HTML — so
+// the wordmark bends with the glass, picks up the scanlines and the aperture
+// grille, and glows like phosphor instead of sitting flat in front.
+export function titleScreen(ctx, W, H, seconds){
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.fillStyle = BG; ctx.fillRect(0,0,W,H);
+
+  // a broad centre wash, the way a tube lights its own glass
+  const wash = ctx.createRadialGradient(W/2,H*0.46,H*0.04, W/2,H*0.46,W*0.66);
+  wash.addColorStop(0,   'rgba(70,175,125,0.13)');
+  wash.addColorStop(0.6, 'rgba(30,95,70,0.05)');
+  wash.addColorStop(1,   'rgba(0,0,0,0)');
+  ctx.fillStyle = wash; ctx.fillRect(0,0,W,H);
+
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const mono = (s,w) => `${w||700} ${s.toFixed(1)}px ui-monospace, "SF Mono", Menlo, Consolas, monospace`;
+
+  // kicker
+  ctx.font = mono(H*0.042, 600);
+  ctx.letterSpacing = `${H*0.012}px`;
+  glow(ctx, 'TYPE FASTER · READ FASTER · SHIP FASTER', W/2, H*0.17, DIM, H*0.042);
+  ctx.letterSpacing = '0px';
+
+  // wordmark, split so MAXX carries the accent the brand uses
+  const big = H*0.20;
+  ctx.font = mono(big, 800);
+  ctx.letterSpacing = `${big*0.06}px`;
+  const a = 'TYPE', b = 'MAXX';
+  const wa = ctx.measureText(a).width, wb = ctx.measureText(b).width;
+  const total = wa + wb, left = W/2 - total/2;
+  ctx.textAlign = 'left';
+  glow(ctx, a, left,      H*0.38, HOT,   big);
+  glow(ctx, b, left + wa, H*0.38, AMBER, big, 'rgba(255,150,52,0.95)');
+  ctx.letterSpacing = '0px';
+  ctx.textAlign = 'center';
+
+  // subtitle
+  ctx.font = mono(H*0.047, 600);
+  glow(ctx, 'Improve your typing and reading speeds', W/2, H*0.56, GREEN, H*0.047);
+  glow(ctx, 'to vibe code faster.',                  W/2, H*0.63, GREEN, H*0.047);
+
+  // the call to action, blinking the way a terminal prompt does
+  if(Math.floor(seconds*1.4) % 2 === 0){
+    ctx.font = mono(H*0.055, 700);
+    ctx.letterSpacing = `${H*0.010}px`;
+    glow(ctx, 'TYPE  START  TO  BEGIN', W/2, H*0.80, AMBER, H*0.055,
+         'rgba(255,150,52,0.95)');
+    ctx.letterSpacing = '0px';
+  }
+}
+
 // ══════════════════════════════════════════════════════════════════ blank
 // A tube that is on but showing nothing. Not simply black: the shader's
 // curvature, scanlines, grille and vignette still run over it, so it reads as
@@ -152,7 +204,8 @@ export function blankScreen(ctx, W, H){
 // 'terminal' is ThreeUI's authored boot log and is handled inside the renderer,
 // so it is a string here rather than a function.
 export const SCREENS = {
-  blank: blankScreen,       // an empty tube — start here
+  title: titleScreen,       // the TYPEMAXX intro card, on the glass
+  blank: blankScreen,       // an empty tube
   terminal: 'terminal',     // ThreeUI's Zion boot log
   typing: typingGame,       // the worked typing game
 };
