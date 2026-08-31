@@ -9,6 +9,7 @@
 // never absolute.
 //
 // ─────────────────────────────────────────────────────────────────────────────
+// TO MOVE THE KEYBOARD: edit BOARD below.
 // TO MOVE A PROP: edit its numbers below. Nothing else.
 // TO ADD A PROP:  copy a block, give it a new key and a model URL.
 // TO HIDE A PROP on some boards: list their theme keys in `hideOn`.
@@ -46,6 +47,19 @@ export const SHOT = {
   fill: 0.62,        // how much of the frame's height the focus should occupy
   aim: 0.52,         // where on the focus to point (0 its base, 1 its top)
   lift: 0.06,        // nudge the whole shot up, as a fraction of frame height
+};
+
+// ── the keyboard ─────────────────────────────────────────────────────────────
+// The board is built at the origin and this moves the finished thing. Offsets
+// are in BOARD WIDTHS, not world units, because the boards differ enormously —
+// a number that reads well against the Mocha would fling the 60% Platinum off
+// the screen. 0.5 is half a keyboard's width.
+//
+// Which keyboard is on screen is chosen in themes.js.
+export const BOARD = {
+  offset: [0, 0, 0],   // [x, y, z] in board widths: +x right, +y up, +z toward you
+  rotate: 0,           // degrees, flat on the desk. 0 faces the camera
+  scale: 1,            // 1 is its natural size
 };
 
 export const PROPS = {

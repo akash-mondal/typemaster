@@ -1,20 +1,19 @@
 // ══════════════════════════════════════════════════════════════════ boards
-// Every keyboard, one file each, in ./boards. They are plain data and import
-// nothing, so any one of them can be copied into a project and edited alone.
+// Every keyboard is its own file in ./boards. They are plain data and import
+// nothing, so any one can be copied into a project and edited on its own.
 //
-// TO SHOW ONLY ONE BOARD: delete the others from THEMES below. The picker
-//   hides itself when a single board is left, and whichever is FIRST is the one
-//   that loads at boot.
-// TO EDIT ONE BOARD in Commonsmade: copy that file out of ./boards into your
-//   project and add ONE line to the import map in index.html, pointing this
-//   tag's copy of it at yours. See COMMONSMADE.md.
-// TO ADD A BOARD: copy the closest file in ./boards, rename its export, and
-//   add it here.
+// ONE BOARD AT A TIME. Only what is listed in THEMES below is built, and the
+// board picker only appears if you list more than one — so leave it at one
+// unless you actually want a switcher on screen.
+//
+// TO SWAP THE BOARD: uncomment its import and put its name in THEMES instead.
+//   That is the whole operation; nothing else refers to boards by name.
+// TO MOVE IT IN THE SCENE: see BOARD in props.js.
 
-import { mocha }      from './boards/mocha.js';
-import { platinum }   from './boards/platinum.js';
-import { stone }      from './boards/stone.js';
-import { rgb }        from './boards/rgb.js';
-import { typewriter } from './boards/typewriter.js';
+import { mocha }        from './boards/mocha.js';
+// import { platinum }   from './boards/platinum.js';   // Apple M0110A, 60%
+// import { stone }      from './boards/stone.js';      // hewn rock caps
+// import { rgb }        from './boards/rgb.js';        // per-key chroma
+// import { typewriter } from './boards/typewriter.js'; // Smith Corona
 
-export const THEMES = { mocha, platinum, stone, rgb, typewriter };
+export const THEMES = { mocha };

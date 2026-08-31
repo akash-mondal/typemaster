@@ -14,7 +14,7 @@ import { PACKS }  from './packs.js';
 import { THEMES } from './themes.js';
 import { buildTypewriter, makeVoice, TW } from './typewriter.js';
 import { buildCRT, buildPlainProp } from './crt.js';
-import { PROPS, SHOT } from './props.js';
+import { PROPS, SHOT, BOARD } from './props.js';
 import { INPUT } from './screens.js';
 
 const showErr = m => { const e=document.getElementById('err'); e.textContent=m; e.style.display='block'; };
@@ -484,6 +484,21 @@ function boardBounds(){
   });
   return _bb;
 }
+// Moves the finished board per BOARD in props.js. Measured after the build,
+// because the offsets are fractions of the board's own width and no board knows
+// its size until it exists. Props place against the moved bounds, so the CRT
+// follows the keyboard rather than being left behind.
+function placeBoard(){
+  if(!root) return;
+  root.position.set(0,0,0); root.rotation.set(0,0,0); root.scale.setScalar(1);
+  const b = BOARD || {}, o = b.offset || [0,0,0];
+  const w = boardBounds().getSize(new THREE.Vector3()).x || 1;
+  root.scale.setScalar(b.scale || 1);
+  root.rotation.y = THREE.MathUtils.degToRad(b.rotate || 0);
+  root.position.set((o[0]||0)*w, (o[1]||0)*w, (o[2]||0)*w);
+  root.updateMatrixWorld(true);
+}
+
 function placeCRT(){
   if(!crt) return;
   // the typewriter is its own complete machine; a monitor behind it makes no sense
@@ -613,6 +628,7 @@ async function buildModelTheme(name){
   root.userData.step = dt => tw.step(dt);
   root.userData.fitPadX = tw.maxTravel;
   tw.setVoice(makeVoice(AC, master || undefined));
+  placeBoard();
   placeCRT();
   fitCamera();
   if(T.ao && ensureAO()) configureAO(T.ao);
@@ -966,6 +982,7 @@ function buildTheme(name){
   gl.position.set(capsCtr.x + capsSize.x*0.55, 6, capsCtr.z - capsSize.z*0.7);
   root.add(kl, fl, hemi, sun, sun.target, gl);
 
+  placeBoard();
   placeCRT();
   fitCamera();
   setPack(T.audio, T.rate);
@@ -1293,7 +1310,7 @@ buildTheme(Object.keys(THEMES)[0]);
     propObjects.set(id, built);
     if(spec.screen !== undefined) crt = built;   // the one with a step()
   }
-  placeCRT(); fitCamera();
+  placeBoard(); placeCRT(); fitCamera();
 })().catch(e => showErr('props: ' + (e.stack || e.message)));
 
 // ══════════════════════════════════════════════════════════ loop
