@@ -152,19 +152,32 @@ export function titleScreen(ctx, W, H, seconds){
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   const mono = (s,w) => `${w||700} ${s.toFixed(1)}px ui-monospace, "SF Mono", Menlo, Consolas, monospace`;
 
+  // The glass curves away at the sides and the bezel crops what is left, so the
+  // usable width is well short of the buffer. Shrink a line to fit that rather
+  // than let it run off the edges — `track` is a fraction of the font size, so
+  // the letter spacing shrinks with it.
+  const SAFE = W * 0.84;
+  const fit = (text, size, weight, track) => {
+    for(let i = 0; i < 40; i++){
+      ctx.font = mono(size, weight);
+      ctx.letterSpacing = `${(track * size).toFixed(2)}px`;
+      if(ctx.measureText(text).width <= SAFE) break;
+      size *= 0.96;
+    }
+    return size;
+  };
+
   // kicker
-  ctx.font = mono(H*0.042, 600);
-  ctx.letterSpacing = `${H*0.012}px`;
-  glow(ctx, 'TYPE FASTER · READ FASTER · SHIP FASTER', W/2, H*0.17, DIM, H*0.042);
+  const kick = 'TYPE FASTER \u00b7 READ FASTER \u00b7 SHIP FASTER';
+  let s = fit(kick, H*0.042, 600, 0.28);
+  glow(ctx, kick, W/2, H*0.17, DIM, s);
   ctx.letterSpacing = '0px';
 
   // wordmark, split so MAXX carries the accent the brand uses
-  const big = H*0.20;
-  ctx.font = mono(big, 800);
-  ctx.letterSpacing = `${big*0.06}px`;
+  const big = fit('TYPEMAXX', H*0.20, 800, 0.06);
   const a = 'TYPE', b = 'MAXX';
   const wa = ctx.measureText(a).width, wb = ctx.measureText(b).width;
-  const total = wa + wb, left = W/2 - total/2;
+  const left = W/2 - (wa + wb)/2;
   ctx.textAlign = 'left';
   glow(ctx, a, left,      H*0.38, HOT,   big);
   glow(ctx, b, left + wa, H*0.38, AMBER, big, 'rgba(255,150,52,0.95)');
@@ -172,16 +185,16 @@ export function titleScreen(ctx, W, H, seconds){
   ctx.textAlign = 'center';
 
   // subtitle
-  ctx.font = mono(H*0.047, 600);
-  glow(ctx, 'Improve your typing and reading speeds', W/2, H*0.56, GREEN, H*0.047);
-  glow(ctx, 'to vibe code faster.',                  W/2, H*0.63, GREEN, H*0.047);
+  const l1 = 'Improve your typing and reading speeds', l2 = 'to vibe code faster.';
+  s = fit(l1, H*0.047, 600, 0);
+  glow(ctx, l1, W/2, H*0.56, GREEN, s);
+  glow(ctx, l2, W/2, H*0.63, GREEN, s);
 
   // the call to action, blinking the way a terminal prompt does
   if(Math.floor(seconds*1.4) % 2 === 0){
-    ctx.font = mono(H*0.055, 700);
-    ctx.letterSpacing = `${H*0.010}px`;
-    glow(ctx, 'TYPE  START  TO  BEGIN', W/2, H*0.80, AMBER, H*0.055,
-         'rgba(255,150,52,0.95)');
+    const cta = 'TYPE  START  TO  BEGIN';
+    s = fit(cta, H*0.055, 700, 0.18);
+    glow(ctx, cta, W/2, H*0.80, AMBER, s, 'rgba(255,150,52,0.95)');
     ctx.letterSpacing = '0px';
   }
 }

@@ -1,4 +1,4 @@
-# TYPE MASTER — keyboards
+# TYPEMAXX — keyboards
 
 Five 3D keyboards in three.js, built to be dropped into a page as code with no
 asset to place by hand. Every board reacts to your real keyboard: keys press,
@@ -46,7 +46,8 @@ itself, it is a library URL, not an asset.
 ```
 index.html      shell: styles, import map, mount points
 app.js          engine — geometry, materials, lighting, camera fit, input, audio
-themes.js       every board's palette, cap profile, case, lighting, sound
+themes.js       the board registry: five lines, one per board
+boards/         one file per keyboard, each standalone and importable on its own
 packs.js        4 mechanical switch sample sets, base64 MP3 (see licence below)
 typewriter.js   the Smith Corona rig: key levers, type bars, carriage, synth voice
 tw-map.js       generated: key code -> keycap position + type bar
