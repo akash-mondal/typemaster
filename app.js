@@ -1043,15 +1043,19 @@ function composeShot(){
   controls.minDistance = 0;
   controls.maxDistance = Infinity;
 
-  // an explicit pose is the whole answer: use it exactly as given
-  if(SHOT.pose && SHOT.pose.position && SHOT.pose.target){
+  // An explicit pose is the whole answer: use it exactly as given. Poses are
+  // per board, because a shot is composed against one board's size and the
+  // boards differ enormously — the 60% Platinum is half the Mocha. A board with
+  // no pose of its own falls through to the framing numbers, which fit it.
+  const pose = (SHOT.poses && SHOT.poses[activeTheme]) || SHOT.pose;
+  if(pose && pose.position && pose.target){
     // controls.update() re-derives the camera from its own spherical state and
     // applies the polar clamp, which silently pulled a locked 86 degree shot
     // back to the 78 degree limit. A pose is authoritative, so drop the limits.
     controls.minPolarAngle = 0;
     controls.maxPolarAngle = Math.PI;
-    camera.position.fromArray(SHOT.pose.position);
-    controls.target.fromArray(SHOT.pose.target);
+    camera.position.fromArray(pose.position);
+    controls.target.fromArray(pose.target);
     camera.lookAt(controls.target);
     camera.updateProjectionMatrix(); controls.update();
     return true;

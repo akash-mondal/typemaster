@@ -16,7 +16,8 @@
 //   canvas-2D function — see screens.js, which has a worked game to copy.
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// Theme keys, for `hideOn`: walnut (the only board in this build).
+// Board keys, for `hideOn` and `poses`:
+//   mocha  platinum  stone  rgb  typewriter
 
 // ── the shot ─────────────────────────────────────────────────────────────────
 // The camera is composed, not auto-fitted. It frames ONE thing; anything nearer
@@ -29,11 +30,17 @@ export const SHOT = {
   // pose: {...}  -> paste that block here and the shot is locked to it.
   //                 A pose always wins over the framing numbers below.
   free: false,       // true = drag to re-compose, and the pose prints top-left
-  // Locked shot: tube dead-on (polar 86.3, azimuth -0.7) with the board close
-  // to the lens and deliberately cropped by the bottom edge.
-  pose: { position:[13.36, 19.28, 71.1], target:[14.46, 13.24, -21.14] },
 
-  // used only when there is no pose
+  // One pose per board, since a shot is composed against a particular board's
+  // size. A board with no entry here is framed automatically by the numbers
+  // below, so you only need to hand-set the ones you care about.
+  poses: {
+    // Mocha: tube dead-on (polar 86.3, azimuth -0.7) with the board close to
+    // the lens and deliberately cropped by the bottom edge.
+    mocha: { position:[13.36, 19.28, 71.1], target:[14.46, 13.24, -21.14] },
+  },
+
+  // used for any board without a pose above
   focus: 'crt',      // which prop to frame. null = fit the whole scene instead
   elevation: 4,      // degrees above the desk. 0 is dead level with the tube
   fill: 0.62,        // how much of the frame's height the focus should occupy
@@ -53,7 +60,7 @@ export const PROPS = {
                         //   board depth (behind/infront) or width (left/right)
     lift: 0,            // raise it off the ground; 0 sits it on the same
                         //   surface as the board
-    hideOn: [],
+    hideOn: ['typewriter'],   // its own complete machine; a monitor behind it makes no sense
   },
 };
 
