@@ -20,13 +20,13 @@ typewriter is the exception and is the only thing here that has to be hosted.
 Everything is ES modules with an import map, so there is no build step. Drop the
 files in, open `index.html`, done. three.js comes from jsDelivr.
 
-The one binary is `typewriter.glb`. It is Draco-compressed to **0.56 MB** (from
+The one binary is `typewriter.glb`. It is Draco-compressed to **0.71 MB** (from
 3.38 MB, with no geometry lost) and is loaded from a URL, so nothing needs
 placing by hand:
 
 ```js
 // themes.js
-model: 'https://cdn.jsdelivr.net/gh/akash-mondal/typemaster@v1.0.0/typewriter.glb'
+model: 'https://cdn.jsdelivr.net/gh/akash-mondal/typemaster@v1.0.1/typewriter.glb'
 ```
 
 The Draco decoder is pulled from the three.js CDN by `typewriter.js`. Like three
