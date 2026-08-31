@@ -1360,6 +1360,16 @@ let bgScene = null, bgCanvas = null, bgTexture = null;
   bgTexture = new THREE.CanvasTexture(bgCanvas);
   bgTexture.colorSpace = THREE.SRGBColorSpace;
   scene.background = bgTexture;
+
+  // Forward the pointer, in the -1..1 the ThreeUI renderers expect. Without
+  // this the background's pointer-reactive parts (the temple's wisps, its
+  // camera drift) simply never move, since the canvas is hidden and gets no
+  // events of its own.
+  if(typeof bgScene.setPointer === 'function'){
+    addEventListener('pointermove', e => bgScene.setPointer(
+      (e.clientX / innerWidth) * 2 - 1, -((e.clientY / innerHeight) * 2 - 1), true));
+    addEventListener('pointerleave', () => bgScene.setPointer(0, 0, false));
+  }
 })().catch(e => showErr('background: ' + (e.stack || e.message)));
 
 renderer.setAnimationLoop(now=>{
