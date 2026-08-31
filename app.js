@@ -658,11 +658,13 @@ function buildTheme(name){
     keys.push(rec);
     if(spec.c) byCode.set(spec.c, rec);
   }
-  LAYOUT.forEach((row,ri)=>{
+  const LAY = T.layout || LAYOUT;
+  LAY.forEach((row,ri)=>{
     let xU=0; row.forEach(s=>{ xU+=s.gap; addKey(s,xU,ri); xU+=s.w; });
     const knobHere = T.caseStyle.knob && (T.caseStyle.knob.row ?? 0) === ri
                      && (T.caseStyle.knob.col ?? RIGHT_X) === RIGHT_X;
-    if(RIGHT_COL[ri] && !knobHere) addKey(K(RIGHT_COL[ri],null,1,RIGHT_CODE[ri],'a'), RIGHT_X, ri);
+    if(!T.layout && RIGHT_COL[ri] && !knobHere)
+      addKey(K(RIGHT_COL[ri],null,1,RIGHT_CODE[ri],'a'), RIGHT_X, ri);
   });
 
   // ---- case
