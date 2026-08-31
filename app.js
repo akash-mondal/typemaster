@@ -14,7 +14,12 @@ import { PACKS }  from './packs.js';
 import { THEMES } from './themes.js';
 import { buildTypewriter, makeVoice, TW } from './typewriter.js';
 import { buildCRT, buildPlainProp } from './crt.js';
-import { PROPS, SHOT, BOARD } from './props.js';
+import { PROPS, SHOT, BOARD, SCENE } from './props.js';
+
+// A page can override SCENE without copying props.js into the project, which
+// keeps a simple project to a single index.html:
+//   <script>window.TYPEMAXX = { floor:false, fog:false, background:{...} }</script>
+if(typeof window !== 'undefined' && window.TYPEMAXX) Object.assign(SCENE, window.TYPEMAXX);
 import { INPUT } from './screens.js';
 
 const showErr = m => { const e=document.getElementById('err'); e.textContent=m; e.style.display='block'; };
@@ -592,8 +597,8 @@ async function buildModelTheme(name){
   const T = THEMES[name];
   resetRoot(name);
   renderer.toneMappingExposure = T.env.exposure;
-  document.body.style.background = T.page;
-  applyFog(T);
+  document.body.style.background = SCENE.background ? 'transparent' : T.page;
+  applyFog(SCENE.fog === false ? {} : T);
   markPicker(name);
 
   const E = T.env;
@@ -611,7 +616,7 @@ async function buildModelTheme(name){
   rim.position.set(2, 7, -18);
   root.add(hemi, key, key.target, fill, rim);
 
-  if(T.floor){
+  if(T.floor && SCENE.floor !== false){
     const f = new THREE.Mesh(new THREE.PlaneGeometry(400,400),
       new THREE.MeshStandardMaterial({color:T.floor.colour, roughness:T.floor.rough,
         metalness:T.floor.metal, envMapIntensity:T.floor.env}));
@@ -648,8 +653,8 @@ function buildTheme(name){
   const caseSurf = getSurface(SURF.case);
 
   renderer.toneMappingExposure = T.env.exposure;
-  document.body.style.background = T.page;
-  applyFog(T);
+  document.body.style.background = SCENE.background ? 'transparent' : T.page;
+  applyFog(SCENE.fog === false ? {} : T);
 
   // ---- keycaps
   const board = new THREE.Group();
@@ -919,7 +924,7 @@ function buildTheme(name){
   board.rotation.x = incline;
   board.position.y = cs.hBack - trayInset - 0.06;
 
-  if(T.floor){
+  if(T.floor && SCENE.floor !== false){
     const F = T.floor;
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(260, 260),
@@ -1155,6 +1160,7 @@ addEventListener('resize', ()=>{
   renderer.setSize(innerWidth, innerHeight);
   if(composer) composer.setSize(innerWidth, innerHeight);
   if(aoComposer) aoComposer.setSize(innerWidth, innerHeight);
+  if(bgScene && bgScene.resize) bgScene.resize();
   fitCamera();
 });
 
@@ -1325,11 +1331,39 @@ let last=performance.now(), frames=0, t0=performance.now();
 // three.js re-requests the frame AFTER the callback, so an uncaught throw here
 // silently kills the loop forever. Never let that happen quietly again.
 let loopDead = false;
+// ── live background ─────────────────────────────────────────────────────────
+// Its own renderer draws into its own canvas, and we sample that canvas as the
+// scene's backdrop. See the note on SCENE.background in props.js for why this
+// is a background rather than a second canvas behind a transparent one.
+let bgScene = null, bgCanvas = null, bgTexture = null;
+(async () => {
+  const spec = SCENE.background;
+  if(!spec || !spec.module) return;
+  const mod = await import(spec.module);
+  const make = mod[spec.export] || mod.default;
+  if(typeof make !== 'function')
+    throw new Error(`background: ${spec.module} has no export ${spec.export || 'default'}`);
+  bgCanvas = document.createElement('canvas');
+  // It has to be IN the document: these renderers size themselves from
+  // canvas.clientWidth, and a detached canvas measures 0 and clamps to 1x1 —
+  // rendering a full scene into a single pixel, silently and at no cost.
+  // `visibility:hidden` keeps the layout box, so it measures correctly while
+  // staying invisible; we only ever read it as a texture.
+  bgCanvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;'
+                         + 'visibility:hidden;pointer-events:none';
+  document.body.appendChild(bgCanvas);
+  bgScene = make(bgCanvas);
+  bgTexture = new THREE.CanvasTexture(bgCanvas);
+  bgTexture.colorSpace = THREE.SRGBColorSpace;
+  scene.background = bgTexture;
+})().catch(e => showErr('background: ' + (e.stack || e.message)));
+
 renderer.setAnimationLoop(now=>{
  try {
   renderer.info.reset();
   const dt = Math.min(0.05,(now-last)/1000); last=now;
   stepKeys(dt); stepFX(now);
+  if(bgScene){ bgScene.render(now); bgTexture.needsUpdate = true; }
   // (the volume knob used to idle-spin here; the scene is static now)
   if(root && root.userData.step) root.userData.step(dt);
   for(const p of propObjects.values()) if(p.step) p.step(now);

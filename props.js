@@ -49,6 +49,27 @@ export const SHOT = {
   lift: 0.06,        // nudge the whole shot up, as a fraction of frame height
 };
 
+// ── the scene itself ─────────────────────────────────────────────────────────
+export const SCENE = {
+  floor: true,        // the ground plane under the keyboard
+  fog: true,          // the distance haze that hides the floor's far edge
+
+  // A LIVE BACKGROUND behind everything. Point `module` at a file that exports
+  // a factory taking a canvas and returning { render, resize, dispose } — the
+  // shape ThreeUI's renderers already have — and it is drawn as the scene's
+  // backdrop.
+  //
+  // It becomes the scene BACKGROUND rather than a second canvas layered
+  // underneath, which matters: UnrealBloomPass writes opaque alpha, so a
+  // transparent canvas stacked over another one comes out as a black rectangle.
+  // As a background it goes through the bloom with everything else.
+  //
+  // Set floor and fog to false as well, or the ground plane hides it.
+  background: null,
+  // background: { module: '/temple/templeNightRenderer.js',
+  //               export: 'createTempleNightRenderer' },
+};
+
 // ── the keyboard ─────────────────────────────────────────────────────────────
 // The board is built at the origin and this moves the finished thing. Offsets
 // are in BOARD WIDTHS, not world units, because the boards differ enormously —
