@@ -21,7 +21,7 @@
 
 export const PROPS = {
   crt: {
-    model: './crt.glb',
+    model: 'https://cdn.jsdelivr.net/gh/akash-mondal/typemaster@v1.1.0/crt.glb',
 
     screen: 'typing',   // what runs on the tube — see screens.js for the list
                         //   'terminal' = ThreeUI's Zion boot log
