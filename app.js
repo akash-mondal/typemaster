@@ -264,19 +264,33 @@ const glowMap = glowTexture();
 // ══════════════════════════════════════════════════════════ keycap geometry
 // Outline is a squircle whose exponent the theme controls: 2 is a circle,
 // 5 reads as a modern keycap, 8 is nearly square. Wobble adds irregularity.
-function outline(a, b, sq, wobble, seedFn){
+function outline(a, b, sq, wobble, seedFn, wobX=1){
   const m = Math.max(Math.abs(a), Math.abs(b));
   if (m < 1e-9) return [0,0];
   const dx=a/m, dy=b/m;
   let t = 1/Math.pow(Math.pow(Math.abs(dx),sq)+Math.pow(Math.abs(dy),sq), 1/sq);
-  if (wobble) t *= 1 + (seedFn(Math.atan2(dy,dx))-0.5)*2*wobble;
-  return [m*t*dx, m*t*dy];
+  let fx = 1, fy = 1;
+  if (wobble){
+    // The wobble is a fraction of the cap's own half-width, so on a 6.25u
+    // spacebar it grew to six times the bulge of a 1u key and swallowed Alt
+    // and Fn. Scaling it down by the width keeps every bump the same physical
+    // size — which is also how real rock behaves.
+    const w = (seedFn(Math.atan2(dy,dx))-0.5)*2*wobble;
+    fx = 1 + w*wobX;
+    fy = 1 + w;
+  }
+  return [m*t*dx*fx, m*t*dy*fy];
 }
 
 function keycapGeometry(widthU, h, T, variant){
   const N = T.cap.grid, sq = T.cap.sq, wob = T.cap.wobble||0;
+  const wobX = 1/Math.max(1, widthU);        // keep bumps a constant size
   const gap = CFG.u - CFG.w;
-  const wBot = widthU*CFG.u - gap, dBot = CFG.d;
+  // Irregular caps need room to bulge into. The stock gap between keys is only
+  // 0.105 units, so a rocky cap with wobble + lumps + jitter will always foul
+  // its neighbour unless the footprint is pulled in to pay for it.
+  const inset = T.cap.inset || 0;
+  const wBot = widthU*CFG.u - gap - inset, dBot = CFG.d - inset;
   const k = 1 - T.cap.taper, wTop = wBot*k, dTop = dBot*k, yTop = h/2;
   // one stable pseudo-random profile per geometry, so a cap doesn't shimmer
   const seed = (variant||0)*137.51 + 11.3;
@@ -294,7 +308,7 @@ function keycapGeometry(widthU, h, T, variant){
   const grid=[];
   for(let j=0;j<=N;j++){ const row=[];
     for(let i=0;i<=N;i++){
-      const [sx,sy]=outline((i/N)*2-1,(j/N)*2-1,sq,wob,wf);
+      const [sx,sy]=outline((i/N)*2-1,(j/N)*2-1,sq,wob,wf,wobX);
       const r=Math.min(1,Math.hypot(sx,sy));
       // UV follows the cap's actual plan position, NOT the parametric grid.
       // The grid step is uniform but `outline` remaps it through the squircle
@@ -321,7 +335,7 @@ function keycapGeometry(widthU, h, T, variant){
   const RINGS=[{s:1.000,y:yTop},{s:1.030,y:yTop-0.018},{s:1.065,y:yTop-0.052},
                {s:1.085,y:yTop-0.105},{s:1/k,y:-h/2}];
   const rows=RINGS.map(R=>ring.map(([a,b])=>{
-    const [sx,sy]=outline(a,b,sq,wob,wf);
+    const [sx,sy]=outline(a,b,sq,wob,wf,wobX);
     return push(sx*(wTop/2)*R.s, R.y, sy*(dTop/2)*R.s, SIDE_U, SIDE_V);
   }));
   for(let r=0;r<rows.length-1;r++){
@@ -597,6 +611,11 @@ function buildTheme(name){
     const row = T.rows[ri];
     let base = spec.st==='x' ? T.colour.accent : spec.st==='m' ? T.colour.mod : T.colour.alpha;
     if(T.lightKeys && spec.c && T.lightKeys.includes(spec.c)) base = T.colour.alpha;
+    // Some boards light ONLY the letters: numbers, punctuation and modifiers
+    // all take the darker cap, which is what makes the set read two-tone
+    // rather than uniformly pale.
+    if(T.lettersOnlyAlpha && spec.c && !/^Key[A-Z]$/.test(spec.c) && spec.c !== 'Space')
+      base = T.colour.mod;
     if(T.altKeys && spec.c && T.altKeys.includes(spec.c)) base = T.colour.alt ?? base;
     const ink  = spec.st==='x' ? T.colour.legendAccent : T.colour.legend;
     const modLeft = T.legendModLeft && !spec.s && spec.l && spec.l.length > 2;
@@ -804,16 +823,33 @@ function buildTheme(name){
   if(cs.pebbles){
     const pmat = new THREE.MeshStandardMaterial({color:T.colour.tray, roughness:0.92, metalness:0,
       normalMap:caseSurf.normalMap, normalScale:new THREE.Vector2(SURF.case.normalScale*1.5, SURF.case.normalScale*1.5)});
+    // Three different solids, each squashed on its own axes and then carved
+    // with the same rock noise as the caps, so no two stones share a
+    // silhouette. Per-vertex displacement is a pure function of position, so
+    // the duplicated verts of a non-indexed polyhedron stay welded.
+    const SOLIDS = [
+      d => new THREE.IcosahedronGeometry(1, d),
+      d => new THREE.DodecahedronGeometry(1, d),
+      d => new THREE.OctahedronGeometry(1, d+1),
+    ];
+    const SZ = cs.pebbleSize ?? 0.5;
     for(let i=0;i<cs.pebbles;i++){
-      const r = 0.22 + Math.random()*0.42;
-      const pb = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 0), pmat);
-      const pp = pb.geometry.attributes.position;
-      for(let v=0; v<pp.count; v++) pp.setXYZ(v, pp.getX(v)*(0.7+Math.random()*0.6),
-        pp.getY(v)*(0.6+Math.random()*0.5), pp.getZ(v)*(0.7+Math.random()*0.6));
-      pb.geometry.computeVertexNormals();
+      const r = SZ*(0.6 + Math.random()*1.7);
+      const g = SOLIDS[(Math.random()*SOLIDS.length)|0](cs.pebbleDetail ?? 2);
+      const sx=0.62+Math.random()*0.8, sy=0.45+Math.random()*0.65, sz=0.62+Math.random()*0.8;
+      const seed=Math.random()*40, amp=0.14+Math.random()*0.26, frq=0.8+Math.random()*1.9;
+      const pp = g.attributes.position;
+      for(let v=0; v<pp.count; v++){
+        const x=pp.getX(v)*sx, y=pp.getY(v)*sy, z=pp.getZ(v)*sz;
+        const n = rockNoise((x+seed)*frq, (y+seed)*frq, (z+seed)*frq);
+        pp.setXYZ(v, (x+n*amp)*r, (y+n*amp)*r, (z+n*amp)*r);
+      }
+      g.computeVertexNormals();
+      const pb = new THREE.Mesh(g, pmat);
       const side = Math.random()<0.5 ? -1 : 1;
-      pb.position.set(capsCtr.x + side*(shellW/2 + 0.6 + Math.random()*2.4),
-                      r*0.55, zB + Math.random()*DEPTH);
+      pb.position.set(capsCtr.x + side*(shellW/2 + 0.5 + Math.random()*4.0),
+                      r*0.42,                       // half-buried, not resting on top
+                      zB - DEPTH*0.12 + Math.random()*DEPTH*1.24);
       pb.rotation.set(Math.random()*3, Math.random()*3, Math.random()*3);
       pb.castShadow = pb.receiveShadow = true;
       caseGroup.add(pb);

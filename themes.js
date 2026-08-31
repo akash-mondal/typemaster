@@ -51,10 +51,13 @@ export const THEMES = {
     rows: [ {h:1.10,tilt:-6.0},{h:1.08,tilt:-4.0},{h:1.04,tilt:-1.5},
             {h:1.02,tilt: 0.5},{h:1.06,tilt: 3.0},{h:1.10,tilt: 5.5} ],
     jitter: { rot:0.16, pos:0.003 },
-    // every cap on that board is the same beige — no darker modifiers
-    colour: { alpha:0xB9AF97, mod:0xB9AF97, accent:0xB2A88F,
-              legend:'#232019', legendAccent:'#232019',
-              case:0xD2C7AC, tray:0x9E9682, screw:0x7A7263 },
+    // Two-tone, and the case is NOT the same colour as the caps: the shell is a
+    // bright cool platinum white while the caps are warm — only the letters and
+    // the spacebar are pale, every number, symbol and modifier is beige.
+    colour: { alpha:0xEDE9DD, mod:0xC7BCA2, accent:0xC7BCA2,
+              legend:'#2C2A26', legendAccent:'#2C2A26',
+              case:0xF1F0EA, tray:0xB9AF97, screw:0x8E8677 },
+    lettersOnlyAlpha: true,
     legendFont: '500 {S}px "Helvetica Neue", Helvetica, Arial, sans-serif',   // Apple used Univers
     legendTrack: '0.5px',
     legendAlign: 'topleft',
@@ -89,10 +92,11 @@ export const THEMES = {
     label: 'STONE AGE',
     audio: 'buckling', rate: 0.55,          // pitched way down — rock, not spring
     // barely tapered lumps: real pebbles aren't moulded
-    cap: { sq: 2.6, taper: 0.06, dish: 0.020, grid: 22, wobble: 0.20, variants: 9, lumps: 0.085 },
+    cap: { sq: 2.6, taper: 0.06, dish: 0.020, grid: 22, wobble: 0.15,
+           variants: 9, lumps: 0.055, inset: 0.42 },
     rows: [ {h:1.16,tilt:-8.0},{h:1.08,tilt:-5.0},{h:1.22,tilt:-2.0},
             {h:1.04,tilt: 1.0},{h:1.18,tilt: 4.5},{h:1.10,tilt: 8.0} ],
-    jitter: { rot:3.2, pos:0.055 },          // knocked about, nothing seated straight
+    jitter: { rot:3.2, pos:0.030 },          // knocked about, nothing seated straight
     colour: { alpha:0x6B6255, mod:0x554D42, accent:0x7A4436,
               legend:'#14120E', legendAccent:'#0E0C09',
               case:0x413A31, tray:0x322C25, screw:0x241F1A },
@@ -109,7 +113,7 @@ export const THEMES = {
     },
     capRough: 0.95, capMetal: 0.0,
     caseStyle: { kind:'wedge', hFront:1.85, hBack:5.40, bezel:1.30,
-                 wood:false, screws:false, pebbles:16,
+                 wood:false, screws:false, pebbles:26, pebbleSize:0.95, pebbleDetail:2,
                  rough:0.46, hewEdge:0.22, hewIter:26, hewFreq:0.38, chunk:0.30,
                  caseRough:0.97, caseMetal:0.0 },
     env: { exposure:0.82, keyCol:0xFFD9A0, keyInt:2.5, fillCol:0x7E93B4, fillInt:0.55,
