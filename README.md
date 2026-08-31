@@ -15,6 +15,15 @@ lights ripple, switches click.
 Four of the five are pure procedural geometry — no model files at all. The
 typewriter is the exception and is the only thing here that has to be hosted.
 
+## Building on Commonsmade
+
+**See [COMMONSMADE.md](COMMONSMADE.md).** It is the handoff: what to paste and in
+what order, where the game code goes, where objects are placed, and the traps.
+
+Verified from a directory containing only `index.html`: the whole scene boots
+with **zero files loaded from the local origin**. Everything else is code you
+paste or a CDN URL.
+
 ## Using it
 
 Everything is ES modules with an import map, so there is no build step. Drop the
