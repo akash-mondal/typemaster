@@ -42,6 +42,8 @@ packs.js        4 mechanical switch sample sets, base64 MP3 (see licence below)
 typewriter.js   the Smith Corona rig: key levers, type bars, carriage, synth voice
 tw-map.js       generated: key code -> keycap position + type bar
 typewriter.glb  the model (Draco)
+crt.js          the CRT television prop: finish, phosphor screen, placement
+crt.glb         the television (Draco)
 tools/          Blender scripts that build the .glb, and why they do what they do
 ```
 
@@ -59,6 +61,17 @@ ratcheting return, none of which are switch samples.
 
 See `tools/README.md` for the model conversion pipeline.
 
+## The CRT
+
+A television stands behind whichever board is on screen (except the typewriter,
+which is its own complete machine). It is a prop rather than a theme, so it
+lives outside the per-theme scene graph and is re-placed and re-scaled against
+each board's measured bounds. The tube shows whatever you type.
+
+The source .blend is 56 MB but the television is only 8,959 polys — the weight
+was an 8K world HDRI and five 3K Poliigon overlay maps that glTF cannot carry.
+Stripped and Draco-compressed it is **0.63 MB**.
+
 ## Licences
 
 - **`typewriter.glb`** is derived from *"Simple Typewriter"* on
@@ -66,6 +79,13 @@ See `tools/README.md` for the model conversion pipeline.
   models are Creative Commons — **check the original model page and comply with
   its specific licence and attribution terms before using this commercially.**
   This has not been verified for this repository.
+- **`crt.glb`** is derived from *"CRT TV"*,
+  [BlendSwap blend #92822](https://www.blendswap.com/blends/view/92822), released
+  under **Creative Commons Attribution 3.0**. That licence *requires* naming the
+  author in copies and derivative works. **The author's name is not recorded in
+  the downloaded archive and still needs to be filled in here** — take it from
+  the blend page above before distributing. Its textures are from Poliigon and
+  the original asks that they be credited too.
 - **`packs.js`** contains switch samples from
   [tplai/kbsim](https://github.com/tplai/kbsim) (MIT).
 - The code in this repository is otherwise free to use.

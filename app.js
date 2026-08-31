@@ -13,6 +13,7 @@ import { TessellateModifier } from 'three/addons/modifiers/TessellateModifier.js
 import { PACKS }  from './packs.js';
 import { THEMES } from './themes.js';
 import { buildTypewriter, makeVoice, TW } from './typewriter.js';
+import { buildCRT } from './crt.js';
 
 const showErr = m => { const e=document.getElementById('err'); e.textContent=m; e.style.display='block'; };
 window.onerror = (m,s,l,c,e) => showErr(e&&e.stack ? e.stack : `${m} @ ${s}:${l}`);
@@ -460,6 +461,29 @@ const RIGHT_X = 15.18;
 
 // ══════════════════════════════════════════════════════════ scene assembly
 let root = null, keys = [], byCode = new Map(), fitBox = new THREE.Box3();
+// Props live outside `root` because root is torn down and rebuilt on every
+// theme switch; the television is not a theme, it stands behind all of them.
+const props = new THREE.Group(); scene.add(props);
+let crt = null, typed = '';
+
+const _bb = new THREE.Box3();
+function boardBounds(){
+  _bb.makeEmpty();
+  if(!root) return _bb;
+  root.updateMatrixWorld(true);
+  root.traverse(o=>{
+    if(o.userData.noFit) return;
+    if(o.isMesh && o.material && o.material.depthWrite) _bb.expandByObject(o);
+  });
+  return _bb;
+}
+function placeCRT(){
+  if(!crt) return;
+  // the typewriter is its own complete machine; a monitor behind it makes no sense
+  const T = THEMES[activeTheme];
+  crt.group.visible = !(T && T.noCRT);
+  if(crt.group.visible && root && !boardBounds().isEmpty()) crt.place(boardBounds());
+}
 let activeTheme = null;
 
 function disposeTree(obj){
@@ -573,6 +597,7 @@ async function buildModelTheme(name){
   root.userData.step = dt => tw.step(dt);
   root.userData.fitPadX = tw.maxTravel;
   tw.setVoice(makeVoice(AC, master || undefined));
+  placeCRT();
   fitCamera();
   if(T.ao && ensureAO()) configureAO(T.ao);
 }
@@ -924,6 +949,7 @@ function buildTheme(name){
   gl.position.set(capsCtr.x + capsSize.x*0.55, 6, capsCtr.z - capsSize.z*0.7);
   root.add(kl, fl, hemi, sun, sun.target, gl);
 
+  placeCRT();
   fitCamera();
   setPack(T.audio, T.rate);
   markPicker(name);
@@ -1010,6 +1036,11 @@ function fitCamera(){
   // camera back far enough that the carriage never leaves frame.
   const pad = root.userData.fitPadX;
   if(pad){ fitBox.min.x -= pad; fitBox.max.x += pad; }
+  props.updateMatrixWorld(true);
+  props.traverse(o=>{
+    if(!o.visible) return;                       // hidden props must not widen the shot
+    if(o.isMesh && o.material && o.material.depthWrite) fitBox.expandByObject(o);
+  });
   fitBox.getCenter(_ctr);
   const el = THREE.MathUtils.degToRad(38);
   _dir.set(0, Math.sin(el), Math.cos(el)).normalize();
@@ -1100,7 +1131,16 @@ function release(code){
   if(code==='Space') voice.spaceUp(); else if(code==='Enter') voice.enterUp();
   else if(code==='Backspace') voice.backUp(); else voice.up();
 }
-addEventListener('keydown', e=>{ press(e.code); if(e.code==='Space'||e.code.startsWith('Arrow')) e.preventDefault(); });
+addEventListener('keydown', e=>{
+  press(e.code);
+  if(crt){
+    if(e.code === 'Backspace') typed = typed.slice(0,-1);
+    else if(e.code === 'Enter') typed = '';
+    else if(e.key && e.key.length === 1) typed = (typed + e.key).slice(-40);
+    crt.setText(typed);
+  }
+  if(e.code==='Space'||e.code.startsWith('Arrow')) e.preventDefault();
+});
 addEventListener('keyup',   e=>{ release(e.code); });
 addEventListener('pointerdown', ()=>initAudio());
 
@@ -1134,9 +1174,14 @@ for(const [k,T] of Object.entries(THEMES)){
 }
 buildTheme(Object.keys(THEMES)[0]);
 
+buildCRT({ url: './crt.glb', parent: props })
+  .then(c => { crt = c; placeCRT(); fitCamera(); })
+  .catch(e => showErr('crt: ' + (e.stack || e.message)));
+
 // ══════════════════════════════════════════════════════════ loop
 window.__TW = TW;
 window.__DBG = {scene, camera, renderer, controls, THREE, buildTheme, press, release, stepFX,
+  get crt(){return crt}, props, placeCRT,
   get typewriter(){return typewriter},
   get ripples(){return ripples},
   get keys(){return keys}, get byCode(){return byCode}, get theme(){return activeTheme},
@@ -1152,6 +1197,7 @@ renderer.setAnimationLoop(now=>{
   stepKeys(dt); stepFX(now);
   if(root && root.userData.knob) root.userData.knob.rotation.y += dt*0.28;
   if(root && root.userData.step) root.userData.step(dt);
+  if(crt) crt.step(now);
   controls.update();
   const T = THEMES[activeTheme];
   if(T && T.bloom){
