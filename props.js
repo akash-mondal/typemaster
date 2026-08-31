@@ -31,7 +31,7 @@ export const SHOT = {
   free: false,       // true = drag to re-compose, and the pose prints top-left
   // Locked shot: tube dead-on (polar 86.3, azimuth -0.7) with the board close
   // to the lens and deliberately cropped by the bottom edge.
-  pose: { position:[13.11, 20.69, 92.74], target:[14.46, 13.24, -21.14] },
+  pose: { position:[13.36, 19.28, 71.1], target:[14.46, 13.24, -21.14] },
 
   // used only when there is no pose
   focus: 'crt',      // which prop to frame. null = fit the whole scene instead
