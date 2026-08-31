@@ -45,10 +45,16 @@ const camera = new THREE.PerspectiveCamera(28, innerWidth/innerHeight, 2, 200);
 scene.environment = new THREE.PMREMGenerator(renderer)
   .fromScene(new RoomEnvironment(renderer), 0.04).texture;
 
+const MSAA = 4;
+function msaaTarget(){
+  return new THREE.WebGLRenderTarget(innerWidth, innerHeight,
+    { type: THREE.HalfFloatType, samples: MSAA });
+}
+
 let composer = null, bloomPass = null;
 function ensureComposer(){
   if(composer) return composer;
-  composer = new EffectComposer(renderer);
+  composer = new EffectComposer(renderer, msaaTarget());
   composer.addPass(new RenderPass(scene, camera));
   bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.9, 0.55, 0.72);
   composer.addPass(bloomPass);
@@ -65,7 +71,7 @@ let aoComposer = null, gtaoPass = null, aoBroken = false;
 function ensureAO(){
   if(aoComposer || aoBroken) return aoComposer;
   try {
-    const c = new EffectComposer(renderer);
+    const c = new EffectComposer(renderer, msaaTarget());
     c.addPass(new RenderPass(scene, camera));
     gtaoPass = new GTAOPass(scene, camera, innerWidth, innerHeight);
     gtaoPass.output = GTAOPass.OUTPUT.Default;
@@ -290,7 +296,15 @@ function keycapGeometry(widthU, h, T, variant){
     for(let i=0;i<=N;i++){
       const [sx,sy]=outline((i/N)*2-1,(j/N)*2-1,sq,wob,wf);
       const r=Math.min(1,Math.hypot(sx,sy));
-      row.push(push(sx*wTop/2, yTop-T.cap.dish*(1-r*r), sy*dTop/2, (i/N)*UVX, 1-j/N));
+      // UV follows the cap's actual plan position, NOT the parametric grid.
+      // The grid step is uniform but `outline` remaps it through the squircle
+      // and the wobble, so a parametric UV stretches the legend wherever the
+      // silhouette bulges — which is why letters rippled on every board and
+      // turned to mush on the wobbled stone caps. Dividing by (1+wob) keeps
+      // the result inside the top-face region however irregular the outline.
+      const inv = 0.5/(1+wob);
+      row.push(push(sx*wTop/2, yTop-T.cap.dish*(1-r*r), sy*dTop/2,
+                    (sx*inv+0.5)*UVX, 1-(sy*inv+0.5)));
     } grid.push(row);
   }
   for(let j=0;j<N;j++) for(let i=0;i<N;i++){
@@ -339,7 +353,7 @@ function keycapGeometry(widthU, h, T, variant){
 }
 
 function capTexture(label, sub, base, ink, T, forceLeft){
-  const W=320,H=256,c=document.createElement('canvas'); c.width=W;c.height=H;
+  const W=640,H=512,c=document.createElement('canvas'); c.width=W;c.height=H;
   const x=c.getContext('2d');
   x.fillStyle=base; x.fillRect(0,0,W,H);
   const faceW=W*0.78, fit=faceW*(forceLeft ? 0.94 : 0.72);
@@ -351,13 +365,16 @@ function capTexture(label, sub, base, ink, T, forceLeft){
   const fitText=(txt,start)=>{ let s=start;
     do{ x.font=font(s); if(x.measureText(txt).width<=fit) break; s-=2; }while(s>(forceLeft?26:8)); return s; };
   const draw = (txt, cx, cy) => {
-    if(T.legendStyle === 'chisel'){
-      // a shallow bright bevel above, the cut itself below
+    if(T.legendStyle === 'engrave'){
+      // A cut into stone reads as one crisp dark glyph with a lit bevel along
+      // its top edge — not a scatter of offset stamps, which is just mush.
       x.save();
-      x.fillStyle = 'rgba(255,255,255,0.30)';
-      for(let k=0;k<5;k++) x.fillText(txt, cx+(Math.random()-0.5)*3.2, cy-2.2+(Math.random()-0.5)*2.4);
+      x.fillStyle = 'rgba(255,252,244,0.55)';
+      x.fillText(txt, cx, cy - H*0.008);        // sun catching the upper lip
+      x.fillStyle = 'rgba(0,0,0,0.30)';
+      x.fillText(txt, cx, cy + H*0.010);        // shadow pooling in the cut
       x.fillStyle = ink;
-      for(let k=0;k<7;k++) x.fillText(txt, cx+(Math.random()-0.5)*3.6, cy+(Math.random()-0.5)*3.0);
+      x.fillText(txt, cx, cy);                  // the cut itself, sharp
       x.restore();
     } else x.fillText(txt, cx, cy);
   };
@@ -651,7 +668,7 @@ function buildTheme(name){
   if(cs.rough){
     shell.geometry.dispose();
     shell.geometry = hewn(wedgeGeometry(shellW, DEPTH, cs.hFront, cs.hBack, 0.14),
-                          {edge:cs.hewEdge||0.55, iterations:8, amp:cs.rough,
+                          {edge:cs.hewEdge||0.55, iterations:cs.hewIter||8, amp:cs.rough,
                            freq:cs.hewFreq||0.42, chunk:cs.chunk||0});
     shell.material.flatShading = true;      // facets, not a smooth blob
     shell.material.needsUpdate = true;

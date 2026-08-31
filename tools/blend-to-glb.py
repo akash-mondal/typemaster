@@ -1,4 +1,6 @@
 import bpy, math, json
+# NOTE: never dedup meshes on this model — the keycap legends live in the UVs,
+# so merging by vertex position alone silently collapses different letters.
 from mathutils import Vector
 
 def bb(o):

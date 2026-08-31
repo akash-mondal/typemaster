@@ -7,7 +7,7 @@ export const THEMES = {
   walnut: {
     label: 'MOCHA',
     audio: 'boxnavy', rate: 1.0,
-    cap: { sq: 5, taper: 0.11, dish: 0.055, grid: 10, wobble: 0 },
+    cap: { sq: 5, taper: 0.11, dish: 0.055, grid: 24, wobble: 0 },
     rows: [ {h:1.02,tilt:-8.0},{h:1.00,tilt:-5.5},{h:0.92,tilt:-2.0},
             {h:0.88,tilt: 0.5},{h:0.94,tilt: 4.0},{h:1.00,tilt: 7.0} ],
     jitter: { rot:0.35, pos:0.005 },
@@ -47,7 +47,7 @@ export const THEMES = {
     label: 'PLATINUM',
     audio: 'bluealps', rate: 1.0,
     // M0110A caps are boxy with big flat tops — barely sculpted, barely dished
-    cap: { sq: 9, taper: 0.07, dish: 0.022, grid: 10, wobble: 0 },
+    cap: { sq: 9, taper: 0.07, dish: 0.022, grid: 22, wobble: 0 },
     rows: [ {h:1.10,tilt:-6.0},{h:1.08,tilt:-4.0},{h:1.04,tilt:-1.5},
             {h:1.02,tilt: 0.5},{h:1.06,tilt: 3.0},{h:1.10,tilt: 5.5} ],
     jitter: { rot:0.16, pos:0.003 },
@@ -82,24 +82,24 @@ export const THEMES = {
     // quarried rock: big coarse cells, deep relief, no directionality at all
     surface: {
       cap : { octaves:[[22,1.0],[44,0.70],[88,0.45],[176,0.22]], strength:11.0, repeat:2,
-              roughBase:0.94, roughVar:0.52, normalScale:2.60, channel:1 },
+              roughBase:0.94, roughVar:0.52, normalScale:1.55, channel:1 },
       case: { octaves:[[16,1.0],[32,0.75],[64,0.48],[128,0.24]], strength:13.0, repeat:2,
               roughBase:0.96, roughVar:0.55, streak:0.0, normalScale:3.10 },
     },
     label: 'STONE AGE',
     audio: 'buckling', rate: 0.55,          // pitched way down — rock, not spring
     // barely tapered lumps: real pebbles aren't moulded
-    cap: { sq: 2.6, taper: 0.06, dish: 0.020, grid: 16, wobble: 0.20, variants: 9, lumps: 0.085 },
+    cap: { sq: 2.6, taper: 0.06, dish: 0.020, grid: 22, wobble: 0.20, variants: 9, lumps: 0.085 },
     rows: [ {h:1.16,tilt:-8.0},{h:1.08,tilt:-5.0},{h:1.22,tilt:-2.0},
             {h:1.04,tilt: 1.0},{h:1.18,tilt: 4.5},{h:1.10,tilt: 8.0} ],
     jitter: { rot:3.2, pos:0.055 },          // knocked about, nothing seated straight
-    colour: { alpha:0x6B6255, mod:0x554D42, accent:0x9C4B2A,
+    colour: { alpha:0x6B6255, mod:0x554D42, accent:0x7A4436,
               legend:'#14120E', legendAccent:'#0E0C09',
               case:0x413A31, tray:0x322C25, screw:0x241F1A },
-    legendFont: '900 {S}px Impact, "Arial Black", sans-serif',
-    legendTrack: '3px',
-    legendStyle: 'chisel',
-    legendSize: 0.38, legendSubSize: 0.26,
+    legendFont: '900 {S}px Impact, "Arial Black", "Haettenschweiler", sans-serif',
+    legendTrack: '1.5px',
+    legendStyle: 'engrave',          // a clean cut with a lit upper edge
+    legendSize: 0.40, legendSubSize: 0.27,
     // pre-surface behaviour: the shared default grain, driven hard
     surface: {
       cap : { octaves:[[64,1.0],[128,0.55],[256,0.25]], strength:5.5, repeat:3,
@@ -110,7 +110,7 @@ export const THEMES = {
     capRough: 0.95, capMetal: 0.0,
     caseStyle: { kind:'wedge', hFront:1.85, hBack:5.40, bezel:1.30,
                  wood:false, screws:false, pebbles:16,
-                 rough:0.46, hewEdge:0.42, hewFreq:0.38, chunk:0.30,
+                 rough:0.46, hewEdge:0.22, hewIter:26, hewFreq:0.38, chunk:0.30,
                  caseRough:0.97, caseMetal:0.0 },
     env: { exposure:0.82, keyCol:0xFFD9A0, keyInt:2.5, fillCol:0x7E93B4, fillInt:0.55,
            rakeCol:0xFFCF96, rakeInt:2.6, rakeAz:-70, rakeEl:8,
@@ -128,7 +128,7 @@ export const THEMES = {
     },
     label: 'RGB',
     audio: 'redink', rate: 1.0,             // linear switches — no click, just thock
-    cap: { sq: 6, taper: 0.13, dish: 0.060, grid: 10, wobble: 0 },
+    cap: { sq: 6, taper: 0.13, dish: 0.060, grid: 24, wobble: 0 },
     rows: [ {h:1.00,tilt:-8.5},{h:0.98,tilt:-5.5},{h:0.92,tilt:-2.0},
             {h:0.88,tilt: 0.5},{h:0.94,tilt: 4.0},{h:1.00,tilt: 7.5} ],
     jitter: { rot:0.18, pos:0.003 },        // machine-built, nothing out of line
@@ -162,7 +162,7 @@ export const THEMES = {
     label: 'TYPEWRITER',
     // served from a CDN so a Commonsmade project is pure code with no asset to
     // place by hand. Draco-compressed: 0.56 MB, full geometry.
-    model: 'https://cdn.jsdelivr.net/gh/akash-mondal/typemaster@v1.0.0/typewriter.glb',
+    model: './typewriter.glb',
     // black crinkle enamel eats light, so the key is hot and the rim does the
     // work of separating the machine from the backdrop
     // a dark studio, not a bright one: the machine is black enamel and only
