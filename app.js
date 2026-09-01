@@ -1644,7 +1644,16 @@ function bgPointer(x, y, inside){
 if(typeof window !== 'undefined'){
   // Swap the backdrop at runtime. Pass null to clear it. The outgoing scene is
   // disposed as soon as the fade ends, never left running out of sight.
-  window.TYPEMAXX_SET_BACKGROUND = async (spec, fadeSeconds) => {
+  // Wrapped so a failure is visible. A page calls this and usually does not
+  // await it, so a rejection went nowhere — a background that failed to build
+  // just silently left the previous one showing, which is indistinguishable
+  // from never having asked for it.
+  window.TYPEMAXX_SET_BACKGROUND = (spec, fadeSeconds) =>
+    setBackground(spec, fadeSeconds).catch(e => {
+      showErr('background: ' + (e && (e.stack || e.message) || e));
+      return false;
+    });
+  const setBackground = async (spec, fadeSeconds) => {
     bgFadeDur = (fadeSeconds == null) ? 0.8 : Math.max(0, fadeSeconds);
     if(bgLayers[1]){ bgDestroy(bgLayers[1]); bgLayers.length = 1; bgFadeT = 0; }
     if(!spec){
