@@ -87,6 +87,9 @@ export const BOARD = {
   offset: [0, 0, 0],   // [x, y, z] in board widths: +x right, +y up, +z toward you
   rotate: 0,           // degrees, flat on the desk. 0 faces the camera
   scale: 1,            // 1 is its natural size
+  // Per-board overrides, for a machine that wants tuning on its own. Boards are
+  // normalised to a common width first, so these are adjustments to that.
+  scaleFor: { typewriter: 0.8 },
 };
 
 export const PROPS = {
@@ -96,7 +99,7 @@ export const PROPS = {
     screen: 'title',    // what runs on the tube — see screens.js
                         //   'title' | 'blank' | 'terminal' | 'typing'
     anchor: 'behind',   // behind | infront | left | right — where it sits
-    widthFrac: 0.88,    // its width as a fraction of the board's width
+    widthFrac: 1.14,    // its width as a fraction of the board's width (+30%)
     gap: 0.55,          // space between it and the board, as a fraction of
                         //   board depth (behind/infront) or width (left/right)
     lift: 0,            // raise it off the ground; 0 sits it on the same

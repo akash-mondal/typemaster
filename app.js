@@ -532,9 +532,16 @@ function stepBackground(now){
 // from, the new one is built off-screen on the far side and rides in.
 let boardBaseX = 0, boardSpan = 1, boardSlideX = 0, swap = null, refBoardWidth = 0;
 
+let boardCleared = false;
 export function showBoard(name, dir){
-  if(!THEMES[name] || name === activeTheme || swap) return false;
-  swap = { name, dir: (dir < 0 ? -1 : 1), t: 0, phase: 'out' };
+  if(swap) return false;
+  // null or 'none' runs the current board off and leaves the desk empty, which
+  // is what the credits want: the television, and nothing in front of it.
+  const clearing = (name === null || name === 'none');
+  if(!clearing && !THEMES[name]) return false;
+  if(!clearing && name === activeTheme && !boardCleared) return false;
+  if(clearing && boardCleared) return false;
+  swap = { name: clearing ? null : name, dir: (dir < 0 ? -1 : 1), t: 0, phase: 'out' };
   return true;
 }
 
@@ -547,11 +554,18 @@ function stepSwap(dt){
     boardSlideX = -swap.dir * travel * (k*k);           // accelerate away
     if(root) root.position.x = boardBaseX + boardSlideX;
     if(k >= 1){
+      if(swap.name === null){                    // credits: leave the desk empty
+        if(root) root.visible = false;
+        boardCleared = true; boardSlideX = 0; swap = null;
+        return;
+      }
       // buildTheme resets the root and re-places everything, so the offset has
       // to be in place before it runs or the new board appears at centre for a
       // frame and the swap flickers.
       boardSlideX = swap.dir * travel;
       buildTheme(swap.name);
+      if(root) root.visible = true;
+      boardCleared = false;
       swap.phase = 'in'; swap.t = 0;
     }
   } else {
@@ -575,16 +589,25 @@ function placeBoard(){
   // are nothing like each other in world units — the typewriter came out a
   // fraction of the size of the keyboards and sat in the corner of frame.
   if(!refBoardWidth) refBoardWidth = natural;
-  root.scale.setScalar((b.scale || 1) * (refBoardWidth / natural));
+  const perBoard = (b.scaleFor && b.scaleFor[activeTheme]) ?? b.scale ?? 1;
+  root.scale.setScalar(perBoard * (refBoardWidth / natural));
   root.rotation.y = THREE.MathUtils.degToRad(b.rotate || 0);
 
-  const span = refBoardWidth * (b.scale || 1);
+  const span = refBoardWidth * perBoard;
   root.position.set((o[0]||0)*span, (o[1]||0)*span, (o[2]||0)*span);
   root.updateMatrixWorld(true);
 
-  // scaling happens about the origin, so sit whatever came out of it back down
+  // Sit it on the ground and centre it on the aim point. Boards are modelled
+  // with their own idea of where the origin is — some centred, some cornered —
+  // so without this each one lands somewhere different and walking through the
+  // menu looks like the keyboard creeping steadily off to one side.
   const bb = boardBounds();
-  if(!bb.isEmpty()) root.position.y -= bb.min.y;
+  if(!bb.isEmpty()){
+    root.position.y -= bb.min.y;
+    root.position.x -= (bb.min.x + bb.max.x)/2 - (o[0]||0)*span;
+    root.position.z -= (bb.min.z + bb.max.z)/2 - (o[2]||0)*span;
+    root.updateMatrixWorld(true);
+  }
 
   boardBaseX = root.position.x;
   boardSpan  = span;
