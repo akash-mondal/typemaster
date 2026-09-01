@@ -100,6 +100,9 @@ export const SCENE = {
 // Which keyboard is on screen is chosen in themes.js.
 export const BOARD = {
   offset: [0, 0, 0],   // [x, y, z] in board widths: +x right, +y up, +z toward you
+  // Per-board overrides of `offset`, same units. The typewriter is wider on its
+  // right than its left, so centring on its bounds pushes it visually right.
+  offsetFor: { typewriter: [-0.05, 0, 0] },
   rotate: 0,           // degrees, flat on the desk. 0 faces the camera
   scale: 1,            // 1 is its natural size
   // Per-board overrides, for a machine that wants tuning on its own. Boards are

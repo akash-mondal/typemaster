@@ -31,11 +31,14 @@ export const TW = {
   bellLead:    6,    // ring the bell this many characters before the line ends
   wrapOnSpace: true, // after the bell, return on the next space instead of mid-word
   returnMs:  480,
-  // The return lever is a 3.10-unit arm that is itself only 0.435 thick, on a
-  // machine 3.14 tall. At 0.85 rad its far end rose 2.33 — three quarters of the
-  // whole typewriter — and read as a pin flying off the body. 0.22 lifts it
-  // 0.68, about one and a half times its own thickness: a sweep you can see
-  // that still looks hinged to something.
+  // The return lever is a 3.10-unit arm, itself only 0.435 thick, on a machine
+  // 3.14 tall — and it reaches to x -5.534, a full unit past the left end of the
+  // platen and further left than anything else in the model. That is true to a
+  // real machine, but this case is narrower than its own platen, so the lever
+  // reads as a wire hanging in the air beside the typewriter rather than a part
+  // of it. The carriage return still runs without it: the carriage travels, the
+  // platen rolls, the bell rings.
+  showLever: false,
   leverSwing: 0.22,
   platenRoll: 0.55,  // rad the platen turns as it feeds one line
 };
@@ -300,7 +303,11 @@ export async function buildTypewriter({ modelUrl, parent }){
   const spacebars = [];
   model.traverse(o => { if(o.name.startsWith('SPACEBAR')){ remember(o); spacebars.push(o); } });
   const levers = [];
-  model.traverse(o => { if(o.name.startsWith('LEVER')){ remember(o); levers.push(o); } });
+  model.traverse(o => {
+    if(!o.name.startsWith('LEVER')) return;
+    remember(o); levers.push(o);
+    if(!TW.showLever) o.visible = false;
+  });
 
   // ── key records, in the shape app.js already steps ──
   const keys = [], byCode = new Map();

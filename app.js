@@ -569,7 +569,8 @@ function placeBoard(){
   root.position.set(0,0,0); root.rotation.set(0,0,0); root.scale.setScalar(1);
   root.updateMatrixWorld(true);
 
-  const b = BOARD || {}, o = b.offset || [0,0,0];
+  const b = BOARD || {};
+  const o = (b.offsetFor && b.offsetFor[activeTheme]) || b.offset || [0,0,0];
   const natural = boardBounds().getSize(new THREE.Vector3()).x || 1;
 
   // Every board is normalised to the width of the first one. The camera is a
