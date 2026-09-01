@@ -21,7 +21,15 @@ import { PROPS, SHOT, BOARD, SCENE } from './props.js';
 //   <script>window.TYPEMAXX = { floor:false, fog:false, background:{...} }</script>
 if(typeof window !== 'undefined' && window.TYPEMAXX) Object.assign(SCENE, window.TYPEMAXX);
 // Reachable from a plain <script> in the page, for screens written inline.
-if(typeof window !== 'undefined') window.TYPEMAXX_INPUT = INPUT;
+if(typeof window !== 'undefined'){
+  window.TYPEMAXX_INPUT = INPUT;
+  // The board a screen is showing, and how to change it. showBoard(name, dir)
+  // slides the current keyboard off in -dir and rides the new one in from +dir,
+  // so a menu moving right feels like the boards moving right. Returns false if
+  // the name is unknown, it is already showing, or a swap is still running.
+  window.TYPEMAXX_BOARDS = Object.keys(THEMES);
+  window.TYPEMAXX_SHOW_BOARD = (name, dir) => showBoard(name, dir);
+}
 import { INPUT } from './screens.js';
 
 const showErr = m => { const e=document.getElementById('err'); e.textContent=m; e.style.display='block'; };
@@ -518,6 +526,42 @@ function stepBackground(now){
   bgTexture.needsUpdate = true;
 }
 
+// ── swapping the board, as a slide ──────────────────────────────────────────
+// A menu picks the keyboard, so the swap has to read as one board leaving and
+// the next arriving rather than a cut. The old one runs off the way you came
+// from, the new one is built off-screen on the far side and rides in.
+let boardBaseX = 0, boardSpan = 1, boardSlideX = 0, swap = null;
+
+export function showBoard(name, dir){
+  if(!THEMES[name] || name === activeTheme || swap) return false;
+  swap = { name, dir: (dir < 0 ? -1 : 1), t: 0, phase: 'out' };
+  return true;
+}
+
+function stepSwap(dt){
+  if(!swap) return;
+  const OUT = 0.22, IN = 0.30, travel = boardSpan * 1.6;
+  swap.t += dt;
+  if(swap.phase === 'out'){
+    const k = Math.min(1, swap.t / OUT);
+    boardSlideX = -swap.dir * travel * (k*k);           // accelerate away
+    if(root) root.position.x = boardBaseX + boardSlideX;
+    if(k >= 1){
+      // buildTheme resets the root and re-places everything, so the offset has
+      // to be in place before it runs or the new board appears at centre for a
+      // frame and the swap flickers.
+      boardSlideX = swap.dir * travel;
+      buildTheme(swap.name);
+      swap.phase = 'in'; swap.t = 0;
+    }
+  } else {
+    const k = Math.min(1, swap.t / IN);
+    boardSlideX = swap.dir * travel * (1 - easeOut(k)); // settle in
+    if(root) root.position.x = boardBaseX + boardSlideX;
+    if(k >= 1){ boardSlideX = 0; if(root) root.position.x = boardBaseX; swap = null; }
+  }
+}
+
 function placeBoard(){
   if(!root) return;
   root.position.set(0,0,0); root.rotation.set(0,0,0); root.scale.setScalar(1);
@@ -526,6 +570,9 @@ function placeBoard(){
   root.scale.setScalar(b.scale || 1);
   root.rotation.y = THREE.MathUtils.degToRad(b.rotate || 0);
   root.position.set((o[0]||0)*w, (o[1]||0)*w, (o[2]||0)*w);
+  boardBaseX = root.position.x;
+  boardSpan  = w;
+  root.position.x += boardSlideX;
   root.updateMatrixWorld(true);
 }
 
@@ -1257,6 +1304,7 @@ addEventListener('keydown', e=>{
   if(e.code === 'Backspace') INPUT.backspace();
   else if(e.code === 'Enter') INPUT.enter();
   else if(e.key && e.key.length === 1) INPUT.push(e.key);
+  INPUT.key(e.code);
   if(e.code==='Space'||e.code.startsWith('Arrow')) e.preventDefault();
 });
 addEventListener('keyup', e => INPUT.down.delete(e.code));
@@ -1319,7 +1367,9 @@ if(SHOT.free){
 // ══════════════════════════════════════════════════════════ theme picker
 const picker = document.getElementById('picker');
 // with a single board there is nothing to pick between
-if(Object.keys(THEMES).length < 2) picker.style.display = 'none';
+// The picker is a development affordance. A screen drives the board now, so
+// it stays hidden unless a page explicitly asks for it.
+if(SCENE.picker !== true || Object.keys(THEMES).length < 2) picker.style.display = 'none';
 // The stats readout is a development aid, not part of the piece. It only
 // appears while the shot is being composed, where it prints the live pose.
 document.getElementById('hud').style.display = SHOT.free ? 'block' : 'none';
@@ -1411,7 +1461,7 @@ renderer.setAnimationLoop(now=>{
  try {
   renderer.info.reset();
   const dt = Math.min(0.05,(now-last)/1000); last=now;
-  stepKeys(dt); stepFX(now);
+  stepKeys(dt); stepFX(now); stepSwap(dt);
   if(bgScene) stepBackground(now);
   // (the volume knob used to idle-spin here; the scene is static now)
   if(root && root.userData.step) root.userData.step(dt);

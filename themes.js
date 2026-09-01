@@ -10,10 +10,12 @@
 //   That is the whole operation; nothing else refers to boards by name.
 // TO MOVE IT IN THE SCENE: see BOARD in props.js.
 
-import { mocha }        from './boards/mocha.js';
-// import { platinum }   from './boards/platinum.js';   // Apple M0110A, 60%
-// import { stone }      from './boards/stone.js';      // hewn rock caps
-// import { rgb }        from './boards/rgb.js';        // per-key chroma
-// import { typewriter } from './boards/typewriter.js'; // Smith Corona
+import { mocha }      from './boards/mocha.js';
+import { platinum }   from './boards/platinum.js';   // Apple M0110A, 60%
+import { stone }      from './boards/stone.js';      // hewn rock caps
+import { rgb }        from './boards/rgb.js';        // per-key chroma
+import { typewriter } from './boards/typewriter.js'; // Smith Corona
 
-export const THEMES = { mocha };
+// Order matters: the first is what loads at boot, and this is the order a menu
+// walks through. The picker buttons stay hidden unless SCENE.picker is true.
+export const THEMES = { mocha, platinum, stone, rgb, typewriter };

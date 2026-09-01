@@ -35,11 +35,10 @@ export const SHOT = {
   // One pose per board, since a shot is composed against a particular board's
   // size. A board with no entry here is framed automatically by the numbers
   // below, so you only need to hand-set the ones you care about.
-  poses: {
-    // Mocha: tube dead-on (polar 86.3, azimuth -0.7) with the board close to
-    // the lens and deliberately cropped by the bottom edge.
-    mocha: { position:[13.36, 19.28, 71.1], target:[14.46, 13.24, -21.14] },
-  },
+  // Every board uses this unless it has its own entry in `poses`. Boards swap
+  // under a menu now, and a camera that re-framed on each swap would lurch.
+  pose: { position:[13.36, 19.28, 71.1], target:[14.46, 13.24, -21.14] },
+  poses: {},
 
   // used for any board without a pose above
   focus: 'crt',      // which prop to frame. null = fit the whole scene instead
@@ -51,6 +50,7 @@ export const SHOT = {
 
 // ── the scene itself ─────────────────────────────────────────────────────────
 export const SCENE = {
+  picker: false,      // the row of board buttons. Off: a menu drives this now.
   floor: true,        // the ground plane under the keyboard
   fog: true,          // the distance haze that hides the floor's far edge
 

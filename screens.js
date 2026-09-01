@@ -24,15 +24,20 @@
 // last frame and clears it, which keeps a game independent of frame rate.
 export const INPUT = {
   _chars: [],
+  _keys: [],
   _back: 0,
   _enter: 0,
   down: new Set(),
   push(ch){ if(this._chars.length < 64) this._chars.push(ch); },
+  // Every keydown's KeyboardEvent.code, in order. `chars` only carries things
+  // that produce a character, so a menu driven by the arrow keys needs this.
+  key(code){ if(this._keys.length < 64) this._keys.push(code); },
   backspace(){ this._back++; },
   enter(){ this._enter++; },
   pull(){
-    const out = { chars: this._chars, back: this._back, enter: this._enter };
-    this._chars = []; this._back = 0; this._enter = 0;
+    const out = { chars: this._chars, keys: this._keys,
+                  back: this._back, enter: this._enter };
+    this._chars = []; this._keys = []; this._back = 0; this._enter = 0;
     return out;
   },
 };
