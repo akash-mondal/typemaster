@@ -91,6 +91,11 @@ export async function buildCRT({ url, parent }){
   const model = gltf.scene;
 
   let screenMat = null, screenMesh = null, bodyMat = null;
+  // cabinet re-skin, eased rather than cut
+  const bodyFrom = new THREE.Color(), bodyTo = new THREE.Color();
+  let bodyT = 1, bodyDur = 0.6, bodyLast = 0, bodyTarget = null;
+  const paleness = h => ((h >> 16 & 255) + (h >> 8 & 255) + (h & 255)) / 3 > 110;
+  let fromPale = false, toPale = false;
   model.traverse(o => {
     if(o.isMesh && o.material && o.material.name === 'CRT_SCREEN') screenMesh = o;
   });
@@ -173,15 +178,34 @@ export async function buildCRT({ url, parent }){
     // The cabinet is re-skinned per board — an Apple beige set beside the
     // Platinum, the black one everywhere else. Roughness lifts with a pale
     // shell because a light plastic scatters more than a dark one.
-    setBodyColor(hex){
-      if(!bodyMat) return;
-      bodyMat.color.setHex(hex);
-      const pale = ((hex >> 16 & 255) + (hex >> 8 & 255) + (hex & 255)) / 3 > 110;
-      bodyMat.roughness = pale ? 0.68 : 0.52;
-      bodyMat.envMapIntensity = pale ? 0.42 : 0.55;
-      bodyMat.needsUpdate = true;
+    setBodyColor(hex, seconds){
+      if(!bodyMat || hex === bodyTarget) return;
+      bodyFrom.copy(bodyMat.color);
+      bodyTo.setHex(hex);
+      fromPale = toPale; toPale = paleness(hex);
+      bodyTarget = hex;
+      bodyDur = (seconds == null) ? 0.6 : seconds;
+      bodyT = bodyDur > 0 ? 0 : 1;
+      if(bodyT >= 1){
+        bodyMat.color.copy(bodyTo);
+        bodyMat.roughness = toPale ? 0.68 : 0.52;
+        bodyMat.envMapIntensity = toPale ? 0.42 : 0.55;
+        bodyMat.needsUpdate = true;
+      }
     },
-    step(now){ crt.render(now); phosphor.needsUpdate = true; },
+    step(now){
+      crt.render(now); phosphor.needsUpdate = true;
+      if(bodyMat && bodyT < 1){
+        const dt = bodyLast ? Math.min(0.05, (now - bodyLast) / 1000) : 0;
+        bodyT = Math.min(1, bodyT + dt / Math.max(0.001, bodyDur));
+        const k = bodyT * bodyT * (3 - 2 * bodyT);          // smoothstep
+        bodyMat.color.copy(bodyFrom).lerp(bodyTo, k);
+        bodyMat.roughness       = (fromPale ? 0.68 : 0.52) + ((toPale ? 0.68 : 0.52) - (fromPale ? 0.68 : 0.52)) * k;
+        bodyMat.envMapIntensity = (fromPale ? 0.42 : 0.55) + ((toPale ? 0.42 : 0.55) - (fromPale ? 0.42 : 0.55)) * k;
+        bodyMat.needsUpdate = true;
+      }
+      bodyLast = now;
+    },
 
     // Placement is data, not code: see PROPS.crt in props.js.
     place(boardBox, opts = {}){

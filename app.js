@@ -615,6 +615,38 @@ let crtPlaced = false;
 // about it is invisible, so it grounds the board on whatever backdrop is behind
 // without covering it.
 let shadowFloor = null;
+// Point the shadow-casting light wherever the backdrop's own sun is, so the
+// board and the set are lit by the same thing the scene behind them is. A
+// keyboard lit from the left in front of a sunrise coming from the right is the
+// single loudest tell that it was pasted on.
+let sunLight = null;
+const sunAim = new THREE.Vector3();
+function applySunOverride(){
+  if(!sunLight) return;
+  const S = SCENE.sun;
+  if(!S) return;
+  if(S.colour    !== undefined) sunLight.color.setHex(S.colour);
+  if(S.intensity !== undefined) sunLight.intensity = S.intensity;
+  if(S.az !== undefined || S.el !== undefined){
+    const a = THREE.MathUtils.degToRad(S.az ?? 40);
+    const e = THREE.MathUtils.degToRad(S.el ?? 35);
+    const d = 45;
+    sunLight.position.set(sunAim.x + Math.sin(a) * d * Math.cos(e),
+                          Math.max(2, Math.sin(e) * d),
+                          sunAim.z + Math.cos(a) * d * Math.cos(e));
+  }
+  const K = SCENE.sky;
+  if(K){
+    scene.traverse(o => {
+      if(!o.isHemisphereLight) return;
+      if(K.top       !== undefined) o.color.setHex(K.top);
+      if(K.bottom    !== undefined) o.groundColor.setHex(K.bottom);
+      if(K.intensity !== undefined) o.intensity = K.intensity;
+    });
+  }
+  if(SCENE.exposure !== undefined) renderer.toneMappingExposure = SCENE.exposure;
+}
+
 function ensureShadowFloor(){
   const want = SCENE.shadowFloor === true;
   if(want && !shadowFloor){
@@ -640,7 +672,8 @@ function placeCRT(){
   const hide = (PROPS.crt.hideOn || []).includes(activeTheme);
   crt.group.visible = !hide;
   if(crt.setBodyColor)
-    crt.setBodyColor((PROPS.crt.bodyFor && PROPS.crt.bodyFor[activeTheme]) ?? PROPS.crt.body ?? 0x141416);
+    crt.setBodyColor((PROPS.crt.bodyFor && PROPS.crt.bodyFor[activeTheme]) ?? PROPS.crt.body ?? 0x141416,
+                     PROPS.crt.bodyFade ?? 0.6);
   // The television is furniture. It is placed once, against the first board, and
   // then left alone: re-placing it per board sent it off-screen with the
   // keyboard during a swap, because the board's bounds carry the slide offset.
@@ -743,6 +776,7 @@ async function buildModelTheme(name){
   const hemi = new THREE.HemisphereLight(E.hemiSky, E.hemiGround, E.hemiInt);
   const key  = new THREE.DirectionalLight(E.keyCol, E.keyInt);
   key.position.set(-9, 16, 12); key.castShadow = true;
+  sunLight = key; sunAim.set(0, 0, 0);
   key.shadow.mapSize.set(2048,2048);
   key.shadow.camera.near = 1; key.shadow.camera.far = 60;
   key.shadow.camera.left = -12; key.shadow.camera.right = 12;
@@ -1105,6 +1139,7 @@ function buildTheme(name){
   const hemi = new THREE.HemisphereLight(E.hemiSky, E.hemiGround, E.hemiInt);
   const sun = new THREE.DirectionalLight(0xFFFFFF, 0.85);
   sun.position.set(capsCtr.x+12, 26, capsCtr.z+14);
+  sunLight = sun; sunAim.set(capsCtr.x, 0, capsCtr.z);
   sun.castShadow = true; sun.shadow.mapSize.set(2048,2048);
   const S = Math.max(capsSize.x, capsSize.z)*0.75 + 3;
   Object.assign(sun.shadow.camera,{left:-S,right:S,top:S,bottom:-S,near:1,far:80});
@@ -1670,7 +1705,7 @@ renderer.setAnimationLoop(now=>{
  try {
   renderer.info.reset();
   const dt = Math.min(0.05,(now-last)/1000); last=now;
-  stepKeys(dt); stepFX(now); stepSwap(dt); ensureShadowFloor();
+  stepKeys(dt); stepFX(now); stepSwap(dt); ensureShadowFloor(); applySunOverride();
   stepBackground(now, dt);
   // (the volume knob used to idle-spin here; the scene is static now)
   if(root && root.userData.step) root.userData.step(dt);

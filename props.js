@@ -57,6 +57,15 @@ export const SCENE = {
   // sky — this is what stops them looking pasted on top of it.
   shadowFloor: false,
   shadowOpacity: 0.34,
+
+  // Match the lighting to whatever backdrop is behind. az is degrees clockwise
+  // from straight ahead, el is degrees above the horizon. Leave null to keep the
+  // board's own rig.
+  //   sun: { az: 62, el: 14, colour: 0xFFD2A1, intensity: 1.5 },
+  //   sky: { top: 0xE8D6B4, bottom: 0x6E6A4E, intensity: 0.9 },
+  //   exposure: 0.95,
+  sun: null,
+  sky: null,
   fog: true,          // the distance haze that hides the floor's far edge
 
   // A LIVE BACKGROUND behind everything. Point `module` at a file that exports
@@ -114,6 +123,7 @@ export const PROPS = {
 
     // The cabinet colour, per board. Anything not listed uses `body`.
     body: 0x141416,
+    bodyFade: 0.6,      // seconds to ease between cabinet skins
     bodyFor: { platinum: 0xF1F0EA,     // matches the M0110A's case
                stone:    0x413A31 },   // matches the stone slab
   },
