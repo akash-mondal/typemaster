@@ -102,7 +102,7 @@ export const BOARD = {
   offset: [0, 0, 0],   // [x, y, z] in board widths: +x right, +y up, +z toward you
   // Per-board overrides of `offset`, same units. The typewriter is wider on its
   // right than its left, so centring on its bounds pushes it visually right.
-  offsetFor: { typewriter: [-0.05, 0, 0] },
+  offsetFor: { typewriter: [-0.10, 0, 0] },
   rotate: 0,           // degrees, flat on the desk. 0 faces the camera
   scale: 1,            // 1 is its natural size
   // Per-board overrides, for a machine that wants tuning on its own. Boards are
@@ -127,8 +127,15 @@ export const PROPS = {
     // The cabinet colour, per board. Anything not listed uses `body`.
     body: 0x141416,
     bodyFade: 0.6,      // seconds to ease between cabinet skins
-    bodyFor: { platinum: 0xF1F0EA,     // matches the M0110A's case
-               stone:    0x413A31 },   // matches the stone slab
+    // A skin is a colour, or { colour, metalness, roughness, env } for a finish.
+    bodyFor: {
+      platinum: 0xF1F0EA,            // matches the M0110A's case
+      stone:    0x413A31,            // matches the stone slab
+      // Worn steel beside the Corona: fully metal, but rough enough to scatter
+      // rather than mirror. A polished cabinet next to a matte machine reads as
+      // chrome trim, which is not what a typewriter's era looked like.
+      typewriter: { colour: 0x9BA1A6, metalness: 0.92, roughness: 0.46, env: 1.05 },
+    },
   },
 };
 
