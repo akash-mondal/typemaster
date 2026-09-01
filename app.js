@@ -23,6 +23,7 @@ if(typeof window !== 'undefined' && window.TYPEMAXX) Object.assign(SCENE, window
 // Reachable from a plain <script> in the page, for screens written inline.
 if(typeof window !== 'undefined'){
   window.TYPEMAXX_INPUT = INPUT;
+  window.TYPEMAXX_THREE = THREE;   // for backgrounds written in the page
   // The board a screen is showing, and how to change it. showBoard(name, dir)
   // slides the current keyboard off in -dir and rides the new one in from +dir,
   // so a menu moving right feels like the boards moving right. Returns false if
@@ -503,28 +504,6 @@ function boardBounds(){
 // because the offsets are fractions of the board's own width and no board knows
 // its size until it exists. Props place against the moved bounds, so the CRT
 // follows the keyboard rather than being left behind.
-
-// Draw the backdrop, and cope with it resizing itself underneath us.
-//
-// These renderers carry an adaptive quality scaler. A tab that has been in the
-// background comes back with a frame time measured in seconds, the scaler reads
-// that as a slow GPU and drops its resolution in one step, and its bloom pyramid
-// still holds the frames from before the change — so the next composite lays the
-// old picture, stretched, over the new one and you get two moons. Flushing the
-// stale levels and rebuilding the texture at the new size clears it.
-function stepBackground(now){
-  bgScene.render(now);
-  const w = bgCanvas.width, h = bgCanvas.height;
-  if(w !== bgW || h !== bgH){
-    bgW = w; bgH = h;
-    for(let i = 0; i < 3; i++) bgScene.render(now);
-    bgTexture.dispose();
-    bgTexture = new THREE.CanvasTexture(bgCanvas);
-    bgTexture.colorSpace = THREE.SRGBColorSpace;
-    scene.background = bgTexture;
-  }
-  bgTexture.needsUpdate = true;
-}
 
 // ── swapping the board, as a slide ──────────────────────────────────────────
 // A menu picks the keyboard, so the swap has to read as one board leaving and
@@ -1287,7 +1266,6 @@ addEventListener('resize', ()=>{
   renderer.setSize(innerWidth, innerHeight);
   if(composer) composer.setSize(innerWidth, innerHeight);
   if(aoComposer) aoComposer.setSize(innerWidth, innerHeight);
-  if(bgScene && bgScene.resize) bgScene.resize();
   fitCamera();
 });
 
@@ -1461,63 +1439,149 @@ let last=performance.now(), frames=0, t0=performance.now();
 // three.js re-requests the frame AFTER the callback, so an uncaught throw here
 // silently kills the loop forever. Never let that happen quietly again.
 let loopDead = false;
-// ── live background ─────────────────────────────────────────────────────────
-// Its own renderer draws into its own canvas, and we sample that canvas as the
-// scene's backdrop. See the note on SCENE.background in props.js for why this
-// is a background rather than a second canvas behind a transparent one.
-let bgScene = null, bgCanvas = null, bgTexture = null, bgW = 0, bgH = 0;
-(async () => {
-  const spec = SCENE.background;
-  if(!spec || !spec.module) return;
-  // Resolve against the PAGE, not this file. app.js is served from a CDN, so a
-  // dynamic import of '/temple/x.js' would otherwise resolve against the CDN
-  // origin and 404 — the module lives in the project using it.
-  const url = new URL(spec.module, document.baseURI).href;
-  const mod = await import(/* @vite-ignore */ url);
-  const make = mod[spec.export] || mod.default;
-  if(typeof make !== 'function')
-    throw new Error(`background: ${spec.module} has no export ${spec.export || 'default'}`);
-  bgCanvas = document.createElement('canvas');
+// ── live backgrounds, swappable ─────────────────────────────────────────────
+// A background is any factory taking a canvas and returning
+// { render, resize, dispose } — the shape ThreeUI's renderers already have.
+// It draws into its own hidden canvas; we copy that into a compositor and use
+// the compositor as the scene's backdrop. See the note on SCENE.background in
+// props.js for why this is a background and not a second canvas underneath.
+//
+// Two can be alive at once, and only ever during a crossfade: the outgoing one
+// is disposed the moment the fade completes, so nothing is left running behind
+// a background you can no longer see.
+let bgLayers = [];                       // [current] or [outgoing, incoming]
+let bgTexture = null, bgComposite = null, bgCtx = null;
+let bgFadeT = 0, bgFadeDur = 0.8;
+
+function bgMakeCanvas(){
+  const c = document.createElement('canvas');
   // It has to be IN the document: these renderers size themselves from
   // canvas.clientWidth, and a detached canvas measures 0 and clamps to 1x1 —
-  // rendering a full scene into a single pixel, silently and at no cost.
-  // `visibility:hidden` keeps the layout box, so it measures correctly while
-  // staying invisible; we only ever read it as a texture.
-  bgCanvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;'
-                         + 'visibility:hidden;pointer-events:none';
-  document.body.appendChild(bgCanvas);
-  bgScene = make(bgCanvas);
-  bgTexture = new THREE.CanvasTexture(bgCanvas);
-  bgTexture.colorSpace = THREE.SRGBColorSpace;
-  scene.background = bgTexture;
-  bgW = bgCanvas.width; bgH = bgCanvas.height;
+  // rendering a whole scene into a single pixel, silently and for free.
+  c.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;'
+                  + 'visibility:hidden;pointer-events:none';
+  document.body.appendChild(c);
+  return c;
+}
 
-  // Returning to a hidden tab is what trips the scaler, so re-measure and flush
-  // there too rather than waiting for the artefact to show up first.
-  document.addEventListener('visibilitychange', () => {
-    if(document.hidden || !bgScene) return;
-    if(bgScene.resize) bgScene.resize();
-    for(let i = 0; i < 3; i++) bgScene.render(performance.now());
-    bgTexture.needsUpdate = true;
-  });
-
-  // Forward the pointer, in the -1..1 these renderers expect — but only when
-  // asked. The shot here is composed and locked, so having the backdrop drift
-  // under a moving cursor reads as the whole scene sliding about. Opt in with
-  // background: { ..., pointer: true }.
-  if(spec.pointer === true && typeof bgScene.setPointer === 'function'){
-    addEventListener('pointermove', e => bgScene.setPointer(
-      (e.clientX / innerWidth) * 2 - 1, -((e.clientY / innerHeight) * 2 - 1), true));
-    addEventListener('pointerleave', () => bgScene.setPointer(0, 0, false));
+async function bgCreate(spec){
+  const canvas = bgMakeCanvas();
+  let make = spec.factory;
+  if(typeof make !== 'function'){
+    // Resolve against the PAGE, not this file: app.js is served from a CDN, so
+    // '/x.js' would otherwise resolve against the CDN origin and 404.
+    const url = new URL(spec.module, document.baseURI).href;
+    const mod = await import(/* @vite-ignore */ url);
+    make = mod[spec.export] || mod.default;
   }
-})().catch(e => showErr('background: ' + (e.stack || e.message)));
+  if(typeof make !== 'function')
+    throw new Error('background: no factory (need `factory`, or `module` + `export`)');
+  const inst = make(canvas, THREE);
+  if(inst && inst.resize) inst.resize();
+  return { inst, canvas, spec };
+}
+
+function bgDestroy(layer){
+  if(!layer) return;
+  try { if(layer.inst && layer.inst.dispose) layer.inst.dispose(); } catch(e){}
+  if(layer.canvas.parentNode) layer.canvas.parentNode.removeChild(layer.canvas);
+}
+
+function stepBackground(now, dt){
+  if(!bgLayers.length) return;
+  for(const L of bgLayers) L.inst.render(now);
+
+  const src = bgLayers[0].canvas;
+  const w = src.width, h = src.height;
+  if(!(w > 1 && h > 1)) return;
+
+  if(!bgComposite){ bgComposite = document.createElement('canvas');
+                    bgCtx = bgComposite.getContext('2d'); }
+  if(bgComposite.width !== w || bgComposite.height !== h){
+    // A renderer that resizes itself — these carry an adaptive quality scaler,
+    // and a tab returning from the background trips it — leaves its bloom
+    // pyramid holding pre-resize frames. Rebuilding the texture at the new size
+    // clears the stale composite that otherwise shows as a doubled image.
+    bgComposite.width = w; bgComposite.height = h;
+    if(bgTexture){ bgTexture.dispose(); bgTexture = null; }
+  }
+  if(!bgTexture){
+    bgTexture = new THREE.CanvasTexture(bgComposite);
+    bgTexture.colorSpace = THREE.SRGBColorSpace;
+    scene.background = bgTexture;
+  }
+
+  bgCtx.globalAlpha = 1;
+  bgCtx.drawImage(src, 0, 0, w, h);
+
+  if(bgLayers[1]){
+    bgFadeT = Math.min(1, bgFadeT + dt / Math.max(0.01, bgFadeDur));
+    bgCtx.globalAlpha = bgFadeT;
+    bgCtx.drawImage(bgLayers[1].canvas, 0, 0, w, h);
+    bgCtx.globalAlpha = 1;
+    if(bgFadeT >= 1){
+      bgDestroy(bgLayers[0]);            // the old one stops running here
+      bgLayers = [bgLayers[1]];
+      bgFadeT = 0;
+    }
+  }
+  bgTexture.needsUpdate = true;
+}
+
+function bgPointer(x, y, inside){
+  for(const L of bgLayers)
+    if(L.inst && typeof L.inst.setPointer === 'function') L.inst.setPointer(x, y, inside);
+}
+
+if(typeof window !== 'undefined'){
+  // Swap the backdrop at runtime. Pass null to clear it. The outgoing scene is
+  // disposed as soon as the fade ends, never left running out of sight.
+  window.TYPEMAXX_SET_BACKGROUND = async (spec, fadeSeconds) => {
+    bgFadeDur = (fadeSeconds == null) ? 0.8 : Math.max(0, fadeSeconds);
+    if(bgLayers[1]){ bgDestroy(bgLayers[1]); bgLayers.length = 1; bgFadeT = 0; }
+    if(!spec){
+      bgLayers.forEach(bgDestroy); bgLayers = [];
+      scene.background = null;
+      if(bgTexture){ bgTexture.dispose(); bgTexture = null; }
+      return true;
+    }
+    const layer = await bgCreate(spec);
+    if(!bgLayers.length || bgFadeDur === 0){
+      bgLayers.forEach(bgDestroy);
+      bgLayers = [layer];
+    } else {
+      bgLayers[1] = layer; bgFadeT = 0;
+    }
+    return true;
+  };
+}
+
+addEventListener('resize', () => {
+  for(const L of bgLayers) if(L.inst && L.inst.resize) L.inst.resize();
+});
+document.addEventListener('visibilitychange', () => {
+  if(document.hidden) return;
+  for(const L of bgLayers){
+    if(L.inst && L.inst.resize) L.inst.resize();
+    for(let i = 0; i < 3; i++) L.inst.render(performance.now());
+  }
+  if(bgTexture) bgTexture.needsUpdate = true;
+});
+addEventListener('pointermove', e => {
+  if(SCENE.background && SCENE.background.pointer === true)
+    bgPointer((e.clientX/innerWidth)*2 - 1, -((e.clientY/innerHeight)*2 - 1), true);
+});
+
+if(SCENE.background)
+  window.TYPEMAXX_SET_BACKGROUND(SCENE.background, 0)
+    .catch(e => showErr('background: ' + (e.stack || e.message)));
 
 renderer.setAnimationLoop(now=>{
  try {
   renderer.info.reset();
   const dt = Math.min(0.05,(now-last)/1000); last=now;
   stepKeys(dt); stepFX(now); stepSwap(dt);
-  if(bgScene) stepBackground(now);
+  stepBackground(now, dt);
   // (the volume knob used to idle-spin here; the scene is static now)
   if(root && root.userData.step) root.userData.step(dt);
   for(const p of propObjects.values()) if(p.step) p.step(now);
