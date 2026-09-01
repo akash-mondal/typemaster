@@ -1566,7 +1566,15 @@ function stepBackground(now, dt){
       bgFadeT = 0;
     }
   }
-  if(bgQuad) sizeBackgroundQuad();
+  if(bgQuad){
+    sizeBackgroundQuad();
+    // A backdrop arrives already graded by its own renderer, and how bright that
+    // reads against the lit scene in front of it is a judgement call, not a
+    // calculation. `brightness` on the spec multiplies it: 1 is untouched.
+    const front = bgLayers[bgLayers.length - 1];
+    const b = (front && front.spec && front.spec.brightness) || 1;
+    if(bgQuad.material.color.r !== b) bgQuad.material.color.setScalar(b);
+  }
   bgTexture.needsUpdate = true;
 }
 

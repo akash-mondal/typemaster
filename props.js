@@ -73,7 +73,8 @@ export const SCENE = {
 
   background: null,
   // background: { module: '/temple/templeNightRenderer.js',
-  //               export: 'createTempleNightRenderer' },
+  //               export: 'createTempleNightRenderer',
+  //               brightness: 1.4 },   // 1 = as the renderer graded it
 };
 
 // ── the keyboard ─────────────────────────────────────────────────────────────
