@@ -1476,7 +1476,10 @@ async function bgCreate(spec){
   }
   if(typeof make !== 'function')
     throw new Error('background: no factory (need `factory`, or `module` + `export`)');
-  const inst = make(canvas, THREE);
+  // Awaited, so a factory may be async — which is how a background written in
+  // the page reaches the addons: `await import('three/addons/...')` resolves
+  // through the page's import map even from a classic <script>.
+  const inst = await make(canvas, THREE);
   if(inst && inst.resize) inst.resize();
   return { inst, canvas, spec };
 }
