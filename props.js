@@ -105,6 +105,10 @@ export const PROPS = {
     lift: 0,            // raise it off the ground; 0 sits it on the same
                         //   surface as the board
     hideOn: [],         // the tube is the menu now, so it is always present
+
+    // The cabinet colour, per board. Anything not listed uses `body`.
+    body: 0x141416,
+    bodyFor: { platinum: 0xF1F0EA },   // matches the M0110A's case
   },
 };
 

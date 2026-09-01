@@ -90,7 +90,7 @@ export async function buildCRT({ url, parent }){
   const gltf = await loader().loadAsync(url);
   const model = gltf.scene;
 
-  let screenMat = null, screenMesh = null;
+  let screenMat = null, screenMesh = null, bodyMat = null;
   model.traverse(o => {
     if(o.isMesh && o.material && o.material.name === 'CRT_SCREEN') screenMesh = o;
   });
@@ -135,6 +135,7 @@ export async function buildCRT({ url, parent }){
     if(m.name === 'CRT_BODY'){
       m.color.setHex(0x141416); m.roughness = 0.52; m.metalness = 0.05;
       m.envMapIntensity = 0.55;
+      bodyMat = m;
     } else if(m.name === 'CRT_GRILLE'){
       m.color.setHex(0x8A8378); m.roughness = 0.92; m.metalness = 0.0;
       m.envMapIntensity = 0.70;
@@ -168,6 +169,18 @@ export async function buildCRT({ url, parent }){
 
   return {
     group, model, screenMat, options: OPTIONS,
+
+    // The cabinet is re-skinned per board — an Apple beige set beside the
+    // Platinum, the black one everywhere else. Roughness lifts with a pale
+    // shell because a light plastic scatters more than a dark one.
+    setBodyColor(hex){
+      if(!bodyMat) return;
+      bodyMat.color.setHex(hex);
+      const pale = ((hex >> 16 & 255) + (hex >> 8 & 255) + (hex & 255)) / 3 > 110;
+      bodyMat.roughness = pale ? 0.68 : 0.52;
+      bodyMat.envMapIntensity = pale ? 0.42 : 0.55;
+      bodyMat.needsUpdate = true;
+    },
     step(now){ crt.render(now); phosphor.needsUpdate = true; },
 
     // Placement is data, not code: see PROPS.crt in props.js.

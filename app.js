@@ -512,9 +512,13 @@ function boardBounds(){
 let boardBaseX = 0, boardSpan = 1, boardSlideX = 0, swap = null, refBoardWidth = 0;
 let refCentreX = null, refCentreZ = null;
 
-let boardCleared = false;
+let boardCleared = false, queued = null;
 export function showBoard(name, dir){
-  if(swap) return false;
+  // Arrowing through the menu faster than a swap takes used to drop the request
+  // outright, so boards were skipped. Remember the latest one instead and run it
+  // when the current swap lands — only the newest matters, since anything in
+  // between was passed through rather than chosen.
+  if(swap){ queued = { name, dir }; return true; }
   // null or 'none' runs the current board off and leaves the desk empty, which
   // is what the credits want: the television, and nothing in front of it.
   const clearing = (name === null || name === 'none');
@@ -537,6 +541,7 @@ function stepSwap(dt){
       if(swap.name === null){                    // credits: leave the desk empty
         if(root) root.visible = false;
         boardCleared = true; boardSlideX = 0; swap = null;
+        if(queued){ const q = queued; queued = null; showBoard(q.name, q.dir); }
         return;
       }
       // buildTheme resets the root and re-places everything, so the offset has
@@ -552,7 +557,10 @@ function stepSwap(dt){
     const k = Math.min(1, swap.t / IN);
     boardSlideX = swap.dir * travel * (1 - easeOut(k)); // settle in
     if(root) root.position.x = boardBaseX + boardSlideX;
-    if(k >= 1){ boardSlideX = 0; if(root) root.position.x = boardBaseX; swap = null; }
+    if(k >= 1){
+      boardSlideX = 0; if(root) root.position.x = boardBaseX; swap = null;
+      if(queued){ const q = queued; queued = null; showBoard(q.name, q.dir); }
+    }
   }
 }
 
@@ -609,6 +617,8 @@ function placeCRT(){
   // a prop hides itself on the themes listed in props.js
   const hide = (PROPS.crt.hideOn || []).includes(activeTheme);
   crt.group.visible = !hide;
+  if(crt.setBodyColor)
+    crt.setBodyColor((PROPS.crt.bodyFor && PROPS.crt.bodyFor[activeTheme]) ?? PROPS.crt.body ?? 0x141416);
   // The television is furniture. It is placed once, against the first board, and
   // then left alone: re-placing it per board sent it off-screen with the
   // keyboard during a swap, because the board's bounds carry the slide offset.
