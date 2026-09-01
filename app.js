@@ -493,6 +493,29 @@ function boardBounds(){
 // because the offsets are fractions of the board's own width and no board knows
 // its size until it exists. Props place against the moved bounds, so the CRT
 // follows the keyboard rather than being left behind.
+
+// Draw the backdrop, and cope with it resizing itself underneath us.
+//
+// These renderers carry an adaptive quality scaler. A tab that has been in the
+// background comes back with a frame time measured in seconds, the scaler reads
+// that as a slow GPU and drops its resolution in one step, and its bloom pyramid
+// still holds the frames from before the change — so the next composite lays the
+// old picture, stretched, over the new one and you get two moons. Flushing the
+// stale levels and rebuilding the texture at the new size clears it.
+function stepBackground(now){
+  bgScene.render(now);
+  const w = bgCanvas.width, h = bgCanvas.height;
+  if(w !== bgW || h !== bgH){
+    bgW = w; bgH = h;
+    for(let i = 0; i < 3; i++) bgScene.render(now);
+    bgTexture.dispose();
+    bgTexture = new THREE.CanvasTexture(bgCanvas);
+    bgTexture.colorSpace = THREE.SRGBColorSpace;
+    scene.background = bgTexture;
+  }
+  bgTexture.needsUpdate = true;
+}
+
 function placeBoard(){
   if(!root) return;
   root.position.set(0,0,0); root.rotation.set(0,0,0); root.scale.setScalar(1);
@@ -1335,7 +1358,7 @@ let loopDead = false;
 // Its own renderer draws into its own canvas, and we sample that canvas as the
 // scene's backdrop. See the note on SCENE.background in props.js for why this
 // is a background rather than a second canvas behind a transparent one.
-let bgScene = null, bgCanvas = null, bgTexture = null;
+let bgScene = null, bgCanvas = null, bgTexture = null, bgW = 0, bgH = 0;
 (async () => {
   const spec = SCENE.background;
   if(!spec || !spec.module) return;
@@ -1360,6 +1383,16 @@ let bgScene = null, bgCanvas = null, bgTexture = null;
   bgTexture = new THREE.CanvasTexture(bgCanvas);
   bgTexture.colorSpace = THREE.SRGBColorSpace;
   scene.background = bgTexture;
+  bgW = bgCanvas.width; bgH = bgCanvas.height;
+
+  // Returning to a hidden tab is what trips the scaler, so re-measure and flush
+  // there too rather than waiting for the artefact to show up first.
+  document.addEventListener('visibilitychange', () => {
+    if(document.hidden || !bgScene) return;
+    if(bgScene.resize) bgScene.resize();
+    for(let i = 0; i < 3; i++) bgScene.render(performance.now());
+    bgTexture.needsUpdate = true;
+  });
 
   // Forward the pointer, in the -1..1 these renderers expect — but only when
   // asked. The shot here is composed and locked, so having the backdrop drift
@@ -1377,7 +1410,7 @@ renderer.setAnimationLoop(now=>{
   renderer.info.reset();
   const dt = Math.min(0.05,(now-last)/1000); last=now;
   stepKeys(dt); stepFX(now);
-  if(bgScene){ bgScene.render(now); bgTexture.needsUpdate = true; }
+  if(bgScene) stepBackground(now);
   // (the volume knob used to idle-spin here; the scene is static now)
   if(root && root.userData.step) root.userData.step(dt);
   for(const p of propObjects.values()) if(p.step) p.step(now);
