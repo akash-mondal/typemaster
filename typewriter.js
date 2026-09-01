@@ -39,6 +39,11 @@ export const TW = {
   // of it. The carriage return still runs without it: the carriage travels, the
   // platen rolls, the bell rings.
   showLever: false,
+  // The type bars swinging up to the platen. Correct — every one lands on the
+  // printing point to 0.000 — but at this camera they read as a stray pin
+  // flicking about rather than a machine printing. Off: the carriage still
+  // travels, the platen rolls, the bell rings and the keys still tip.
+  strikeBars: false,
   leverSwing: 0.22,
   platenRoll: 0.55,  // rad the platen turns as it feeds one line
 };
@@ -345,7 +350,7 @@ export async function buildTypewriter({ modelUrl, parent }){
   };
 
   function typed(rec, code){
-    if(rec.bar){ rec.bar.t = 0; }
+    if(rec.bar && TW.strikeBars){ rec.bar.t = 0; }
     if(ret >= 0) return;
     // Once the bell has rung, a typist finishes the word and returns on the next
     // space. Wrapping there reads far better than being snapped back mid-word,
