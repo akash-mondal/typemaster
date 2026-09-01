@@ -1361,11 +1361,11 @@ let bgScene = null, bgCanvas = null, bgTexture = null;
   bgTexture.colorSpace = THREE.SRGBColorSpace;
   scene.background = bgTexture;
 
-  // Forward the pointer, in the -1..1 the ThreeUI renderers expect. Without
-  // this the background's pointer-reactive parts (the temple's wisps, its
-  // camera drift) simply never move, since the canvas is hidden and gets no
-  // events of its own.
-  if(typeof bgScene.setPointer === 'function'){
+  // Forward the pointer, in the -1..1 these renderers expect — but only when
+  // asked. The shot here is composed and locked, so having the backdrop drift
+  // under a moving cursor reads as the whole scene sliding about. Opt in with
+  // background: { ..., pointer: true }.
+  if(spec.pointer === true && typeof bgScene.setPointer === 'function'){
     addEventListener('pointermove', e => bgScene.setPointer(
       (e.clientX / innerWidth) * 2 - 1, -((e.clientY / innerHeight) * 2 - 1), true));
     addEventListener('pointerleave', () => bgScene.setPointer(0, 0, false));
