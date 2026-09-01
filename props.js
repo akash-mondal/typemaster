@@ -65,6 +65,12 @@ export const SCENE = {
   // As a background it goes through the bloom with everything else.
   //
   // Set floor and fog to false as well, or the ground plane hides it.
+  // What runs on the CRT. Either the name of a built-in screen, or your own
+  // painter function. A page usually sets this via window.TYPEMAXX instead:
+  //   window.TYPEMAXX = { screen(ctx, w, h, seconds, now, input){ ... } }
+  // See screens.js for the contract and a worked example.
+  screen: null,
+
   background: null,
   // background: { module: '/temple/templeNightRenderer.js',
   //               export: 'createTempleNightRenderer' },

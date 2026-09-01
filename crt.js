@@ -13,8 +13,8 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { createCrtTerminal } from './crt-terminal.js';
-import { PROPS, placeProp } from './props.js';
-import { SCREENS } from './screens.js';
+import { PROPS, placeProp, SCENE } from './props.js';
+import { SCREENS, INPUT } from './screens.js';
 
 const DRACO_CDN = 'https://cdn.jsdelivr.net/npm/three@0.160.1/examples/jsm/libs/draco/';
 
@@ -103,7 +103,18 @@ export async function buildCRT({ url, parent }){
   // texture further, so holding this fixed would just make the image softer as
   // the cabinet grew — the tube has to gain pixels, not only inches.
   const bufH = 1000, bufW = Math.round(bufH*aspect);
-  const screen = SCREENS[PROPS.crt.screen] ?? 'terminal';
+  // What runs on the tube. A page can hand in its own painter directly —
+  //   window.TYPEMAXX = { screen(ctx, w, h, seconds, now, input){ ... } }
+  // — which is how a project writes its own game without copying screens.js in.
+  // A string still selects one of the built-ins by name.
+  const pick = SCENE.screen ?? PROPS.crt.screen;
+  const chosen = typeof pick === 'function' ? pick : (SCREENS[pick] ?? 'terminal');
+  // Hand the painter the keyboard as a sixth argument, so a screen never has to
+  // reach for a listener of its own — the boards already own those, and two sets
+  // of listeners fight each other.
+  const screen = typeof chosen === 'function'
+    ? (ctx, w, h, seconds, now) => chosen(ctx, w, h, seconds, now, INPUT)
+    : chosen;
   const crt = createCrtTerminal({ width:bufW, height:bufH, screen,
                                   getOptions: () => OPTIONS });
   const phosphor = new THREE.CanvasTexture(crt.canvas);

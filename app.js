@@ -20,6 +20,8 @@ import { PROPS, SHOT, BOARD, SCENE } from './props.js';
 // keeps a simple project to a single index.html:
 //   <script>window.TYPEMAXX = { floor:false, fog:false, background:{...} }</script>
 if(typeof window !== 'undefined' && window.TYPEMAXX) Object.assign(SCENE, window.TYPEMAXX);
+// Reachable from a plain <script> in the page, for screens written inline.
+if(typeof window !== 'undefined') window.TYPEMAXX_INPUT = INPUT;
 import { INPUT } from './screens.js';
 
 const showErr = m => { const e=document.getElementById('err'); e.textContent=m; e.style.display='block'; };
