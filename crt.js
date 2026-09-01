@@ -178,6 +178,15 @@ export async function buildCRT({ url, parent }){
     // The cabinet is re-skinned per board — an Apple beige set beside the
     // Platinum, the black one everywhere else. Roughness lifts with a pale
     // shell because a light plastic scatters more than a dark one.
+    // Light thrown onto the cabinet by whatever is in front of it. The RGB
+    // board drives this from the same wavefront that runs under its keycaps, so
+    // the set answers a keystroke instead of sitting inert beside it.
+    setAccent(colour, intensity){
+      if(!bodyMat) return;
+      if(colour) bodyMat.emissive.copy(colour);
+      bodyMat.emissiveIntensity = intensity;
+    },
+
     setBodyColor(hex, seconds){
       if(!bodyMat || hex === bodyTarget) return;
       bodyFrom.copy(bodyMat.color);

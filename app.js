@@ -1178,14 +1178,22 @@ function spawnRipple(rec){
 }
 
 const _c1 = new THREE.Color(), _c2 = new THREE.Color(), _white = new THREE.Color(1,1,1);
+const _c3 = new THREE.Color(), _black = new THREE.Color(0x000000);
+let fxLit = false;
 function stepFX(now){
   if(!activeTheme) return;
   const T = THEMES[activeTheme];
-  if(T.fx !== 'rgb') return;
+  if(T.fx !== 'rgb'){
+    // hand the cabinet back when a board that does not light it is showing
+    if(crt && crt.setAccent && fxLit){ crt.setAccent(_black, 0); fxLit = false; }
+    return;
+  }
   const t = now*0.001;
 
   // retire spent wavefronts once per frame rather than per key
   if(ripples.length) ripples = ripples.filter(r => (now-r.born)/1000 < RIPPLE.life);
+
+  let fxWaveSum = 0, fxReactMax = 0, fxCount = 0;
 
   for(const r of keys){
     if(!r.pad) continue;
@@ -1211,6 +1219,8 @@ function stepFX(now){
     const react = age < 0.5 ? Math.pow(1 - age/0.5, 1.7) : 0;
     r.energy += (0 - r.energy)*0.12;
 
+    fxWaveSum += wave; if(react > fxReactMax) fxReactMax = react; fxCount++;
+
     const hot = Math.min(1, wave*0.80 + react);
     // only the very core goes white — the wavefront must stay coloured
     _c1.lerp(_white, Math.pow(hot,2.2)*0.55);
@@ -1222,6 +1232,17 @@ function stepFX(now){
       r.mesh.material.emissive.copy(_c1);
       r.mesh.material.emissiveIntensity = 2.10 + hot*3.4;
     }
+  }
+
+  // The set answers the board. Same cycling spectrum, same wavefronts, read as
+  // one figure across the whole deck rather than per key — a television lit by
+  // the keyboard in front of it picks up the room's colour, not a pixel's.
+  if(crt && crt.setAccent && fxCount){
+    const h = ((-now*0.001*0.13) % 1 + 1) % 1;
+    _c3.setHSL(h, 1.0, 0.55);
+    const e = Math.min(1, (fxWaveSum / fxCount) * 2.6 + fxReactMax * 0.75);
+    crt.setAccent(_c3, 0.06 + e * 0.9);
+    fxLit = true;
   }
 }
 
