@@ -31,7 +31,12 @@ export const TW = {
   bellLead:    6,    // ring the bell this many characters before the line ends
   wrapOnSpace: true, // after the bell, return on the next space instead of mid-word
   returnMs:  480,
-  leverSwing: 0.85,
+  // The return lever is a 3.10-unit arm that is itself only 0.435 thick, on a
+  // machine 3.14 tall. At 0.85 rad its far end rose 2.33 — three quarters of the
+  // whole typewriter — and read as a pin flying off the body. 0.22 lifts it
+  // 0.68, about one and a half times its own thickness: a sweep you can see
+  // that still looks hinged to something.
+  leverSwing: 0.22,
   platenRoll: 0.55,  // rad the platen turns as it feeds one line
 };
 
