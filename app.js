@@ -1570,9 +1570,26 @@ document.addEventListener('visibilitychange', () => {
   }
   if(bgTexture) bgTexture.needsUpdate = true;
 });
+// The backdrop is drawn into a hidden canvas and shown as the scene's
+// background, so it never receives pointer events of its own. Forward them in
+// normalised device coordinates (-1..1, y up), which map straight to the
+// backdrop's camera because that canvas is full-bleed like the viewport. A
+// background can then raycast and be genuinely interactive.
+const bgNdc = e => [(e.clientX/innerWidth)*2 - 1, -((e.clientY/innerHeight)*2 - 1)];
+
 addEventListener('pointermove', e => {
-  if(SCENE.background && SCENE.background.pointer === true)
-    bgPointer((e.clientX/innerWidth)*2 - 1, -((e.clientY/innerHeight)*2 - 1), true);
+  const [x, y] = bgNdc(e);
+  if(SCENE.background && SCENE.background.pointer === true) bgPointer(x, y, true);
+  for(const L of bgLayers) if(L.inst && L.inst.onPointerMove) L.inst.onPointerMove(x, y);
+});
+
+addEventListener('click', e => {
+  // Only the newest layer answers. Mid-crossfade that is the one arriving, and
+  // clicking what is fading out would act on something the eye has left behind.
+  const L = bgLayers[bgLayers.length - 1];
+  if(!L || !L.inst || !L.inst.onPointerDown) return;
+  const [x, y] = bgNdc(e);
+  L.inst.onPointerDown(x, y);
 });
 
 if(SCENE.background)
