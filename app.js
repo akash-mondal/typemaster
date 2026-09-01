@@ -1276,6 +1276,7 @@ addEventListener('resize', ()=>{
   renderer.setSize(innerWidth, innerHeight);
   if(composer) composer.setSize(innerWidth, innerHeight);
   if(aoComposer) aoComposer.setSize(innerWidth, innerHeight);
+  sizeBackgroundQuad();
   fitCamera();
 });
 
@@ -1460,7 +1461,7 @@ let loopDead = false;
 // is disposed the moment the fade completes, so nothing is left running behind
 // a background you can no longer see.
 let bgLayers = [];                       // [current] or [outgoing, incoming]
-let bgTexture = null, bgComposite = null, bgCtx = null;
+let bgTexture = null, bgComposite = null, bgCtx = null, bgQuad = null;
 let bgFadeT = 0, bgFadeDur = 0.8;
 
 function bgMakeCanvas(){
@@ -1500,6 +1501,16 @@ function bgDestroy(layer){
   if(layer.canvas.parentNode) layer.canvas.parentNode.removeChild(layer.canvas);
 }
 
+// Fill the frustum at a fixed distance, so the quad reads as an infinite
+// backdrop however the window is shaped.
+function sizeBackgroundQuad(){
+  if(!bgQuad) return;
+  const d = Math.min(400, camera.far * 0.5);
+  const h = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * d;
+  bgQuad.scale.set(h * camera.aspect, h, 1);
+  bgQuad.position.set(0, 0, -d);
+}
+
 function stepBackground(now, dt){
   if(!bgLayers.length) return;
   for(const L of bgLayers) L.inst.render(now);
@@ -1521,7 +1532,24 @@ function stepBackground(now, dt){
   if(!bgTexture){
     bgTexture = new THREE.CanvasTexture(bgComposite);
     bgTexture.colorSpace = THREE.SRGBColorSpace;
-    scene.background = bgTexture;
+    // NOT scene.background. Three tone-maps the background along with
+    // everything else, and these canvases arrive already tone-mapped and
+    // sRGB-encoded by their own renderer — running ACES over them a second time
+    // crushes the mid-tones, which is where a night scene keeps its lit grass
+    // and foliage. A quad with toneMapped:false hands the picture through
+    // untouched.
+    if(!bgQuad){
+      bgQuad = new THREE.Mesh(new THREE.PlaneGeometry(1, 1),
+        new THREE.MeshBasicMaterial({ toneMapped: false, depthTest: false,
+                                      depthWrite: false, fog: false }));
+      bgQuad.frustumCulled = false;
+      bgQuad.renderOrder = -1000;      // before anything else, and it writes no depth
+      camera.add(bgQuad);
+      scene.add(camera);               // camera children only render once it is in the graph
+    }
+    bgQuad.material.map = bgTexture;
+    bgQuad.material.needsUpdate = true;
+    sizeBackgroundQuad();
   }
 
   bgCtx.globalAlpha = 1;
@@ -1538,6 +1566,7 @@ function stepBackground(now, dt){
       bgFadeT = 0;
     }
   }
+  if(bgQuad) sizeBackgroundQuad();
   bgTexture.needsUpdate = true;
 }
 
@@ -1554,10 +1583,11 @@ if(typeof window !== 'undefined'){
     if(bgLayers[1]){ bgDestroy(bgLayers[1]); bgLayers.length = 1; bgFadeT = 0; }
     if(!spec){
       bgLayers.forEach(bgDestroy); bgLayers = [];
-      scene.background = null;
+      if(bgQuad) bgQuad.visible = false;
       if(bgTexture){ bgTexture.dispose(); bgTexture = null; }
       return true;
     }
+    if(bgQuad) bgQuad.visible = true;
     const layer = await bgCreate(spec);
     if(!bgLayers.length || bgFadeDur === 0){
       bgLayers.forEach(bgDestroy);
