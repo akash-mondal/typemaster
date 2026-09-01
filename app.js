@@ -1237,7 +1237,7 @@ function stepFX(now){
   // The set answers the board. Same cycling spectrum, same wavefronts, read as
   // one figure across the whole deck rather than per key — a television lit by
   // the keyboard in front of it picks up the room's colour, not a pixel's.
-  if(crt && crt.setAccent && fxCount){
+  if(PROPS.crt.reactive === true && crt && crt.setAccent && fxCount){
     const h = ((-now*0.001*0.13) % 1 + 1) % 1;
     _c3.setHSL(h, 1.0, 0.55);
     const e = Math.min(1, (fxWaveSum / fxCount) * 2.6 + fxReactMax * 0.75);
