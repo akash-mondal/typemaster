@@ -52,6 +52,11 @@ export const SHOT = {
 export const SCENE = {
   picker: false,      // the row of board buttons. Off: a menu drives this now.
   floor: true,        // the ground plane under the keyboard
+  // A floor that shows NOTHING but the shadow the board and set drop on it.
+  // With a backdrop that has its own ground — a landscape rather than a night
+  // sky — this is what stops them looking pasted on top of it.
+  shadowFloor: false,
+  shadowOpacity: 0.34,
   fog: true,          // the distance haze that hides the floor's far edge
 
   // A LIVE BACKGROUND behind everything. Point `module` at a file that exports
@@ -109,7 +114,8 @@ export const PROPS = {
 
     // The cabinet colour, per board. Anything not listed uses `body`.
     body: 0x141416,
-    bodyFor: { platinum: 0xF1F0EA },   // matches the M0110A's case
+    bodyFor: { platinum: 0xF1F0EA,     // matches the M0110A's case
+               stone:    0x413A31 },   // matches the stone slab
   },
 };
 

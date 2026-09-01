@@ -611,6 +611,28 @@ function placeBoard(){
 }
 
 let crtPlaced = false;
+// A ground plane that draws only the shadow falling on it. Everything else
+// about it is invisible, so it grounds the board on whatever backdrop is behind
+// without covering it.
+let shadowFloor = null;
+function ensureShadowFloor(){
+  const want = SCENE.shadowFloor === true;
+  if(want && !shadowFloor){
+    shadowFloor = new THREE.Mesh(
+      new THREE.PlaneGeometry(4000, 4000),
+      new THREE.ShadowMaterial({ opacity: SCENE.shadowOpacity ?? 0.34 }));
+    shadowFloor.rotation.x = -Math.PI/2;
+    shadowFloor.position.y = 0.001;      // just clear of the boards' own base
+    shadowFloor.receiveShadow = true;
+    shadowFloor.userData.noFit = true;   // must not drive the camera fit
+    scene.add(shadowFloor);
+  }
+  if(shadowFloor){
+    shadowFloor.visible = want;
+    shadowFloor.material.opacity = SCENE.shadowOpacity ?? 0.34;
+  }
+}
+
 function placeCRT(){
   if(!crt) return;
   // the typewriter is its own complete machine; a monitor behind it makes no sense
@@ -1648,7 +1670,7 @@ renderer.setAnimationLoop(now=>{
  try {
   renderer.info.reset();
   const dt = Math.min(0.05,(now-last)/1000); last=now;
-  stepKeys(dt); stepFX(now); stepSwap(dt);
+  stepKeys(dt); stepFX(now); stepSwap(dt); ensureShadowFloor();
   stepBackground(now, dt);
   // (the volume knob used to idle-spin here; the scene is static now)
   if(root && root.userData.step) root.userData.step(dt);
