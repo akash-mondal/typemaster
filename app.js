@@ -531,6 +531,7 @@ function stepBackground(now){
 // the next arriving rather than a cut. The old one runs off the way you came
 // from, the new one is built off-screen on the far side and rides in.
 let boardBaseX = 0, boardSpan = 1, boardSlideX = 0, swap = null, refBoardWidth = 0;
+let refCentreX = null, refCentreZ = null;
 
 let boardCleared = false;
 export function showBoard(name, dir){
@@ -604,8 +605,15 @@ function placeBoard(){
   const bb = boardBounds();
   if(!bb.isEmpty()){
     root.position.y -= bb.min.y;
-    root.position.x -= (bb.min.x + bb.max.x)/2 - (o[0]||0)*span;
-    root.position.z -= (bb.min.z + bb.max.z)/2 - (o[2]||0)*span;
+    // Line every board up on where the FIRST one sat, not on the world origin.
+    // The shot was composed around the Mocha, which happens to stand near
+    // x = 14 — centring on zero dragged the whole scene out of frame to the
+    // left. So the first board is the reference and never moves; the others are
+    // brought to meet it, which is all the drift ever needed.
+    const cx = (bb.min.x + bb.max.x)/2, cz = (bb.min.z + bb.max.z)/2;
+    if(refCentreX === null){ refCentreX = cx; refCentreZ = cz; }
+    root.position.x -= cx - refCentreX;
+    root.position.z -= cz - refCentreZ;
     root.updateMatrixWorld(true);
   }
 
