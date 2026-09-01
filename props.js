@@ -123,10 +123,6 @@ export const PROPS = {
 
     // The cabinet colour, per board. Anything not listed uses `body`.
     body: 0x141416,
-    // Let the board throw its colour onto the cabinet. The RGB deck drives this
-    // from its own wavefront, which is faithful but fights the screen for
-    // attention — the tube is the thing being read, so this stays off.
-    reactive: false,
     bodyFade: 0.6,      // seconds to ease between cabinet skins
     bodyFor: { platinum: 0xF1F0EA,     // matches the M0110A's case
                stone:    0x413A31 },   // matches the stone slab
