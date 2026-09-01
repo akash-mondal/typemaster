@@ -530,7 +530,7 @@ function stepBackground(now){
 // A menu picks the keyboard, so the swap has to read as one board leaving and
 // the next arriving rather than a cut. The old one runs off the way you came
 // from, the new one is built off-screen on the far side and rides in.
-let boardBaseX = 0, boardSpan = 1, boardSlideX = 0, swap = null;
+let boardBaseX = 0, boardSpan = 1, boardSlideX = 0, swap = null, refBoardWidth = 0;
 
 export function showBoard(name, dir){
   if(!THEMES[name] || name === activeTheme || swap) return false;
@@ -565,24 +565,48 @@ function stepSwap(dt){
 function placeBoard(){
   if(!root) return;
   root.position.set(0,0,0); root.rotation.set(0,0,0); root.scale.setScalar(1);
+  root.updateMatrixWorld(true);
+
   const b = BOARD || {}, o = b.offset || [0,0,0];
-  const w = boardBounds().getSize(new THREE.Vector3()).x || 1;
-  root.scale.setScalar(b.scale || 1);
+  const natural = boardBounds().getSize(new THREE.Vector3()).x || 1;
+
+  // Every board is normalised to the width of the first one. The camera is a
+  // single locked pose now that a menu swaps boards under it, and these machines
+  // are nothing like each other in world units — the typewriter came out a
+  // fraction of the size of the keyboards and sat in the corner of frame.
+  if(!refBoardWidth) refBoardWidth = natural;
+  root.scale.setScalar((b.scale || 1) * (refBoardWidth / natural));
   root.rotation.y = THREE.MathUtils.degToRad(b.rotate || 0);
-  root.position.set((o[0]||0)*w, (o[1]||0)*w, (o[2]||0)*w);
+
+  const span = refBoardWidth * (b.scale || 1);
+  root.position.set((o[0]||0)*span, (o[1]||0)*span, (o[2]||0)*span);
+  root.updateMatrixWorld(true);
+
+  // scaling happens about the origin, so sit whatever came out of it back down
+  const bb = boardBounds();
+  if(!bb.isEmpty()) root.position.y -= bb.min.y;
+
   boardBaseX = root.position.x;
-  boardSpan  = w;
+  boardSpan  = span;
   root.position.x += boardSlideX;
   root.updateMatrixWorld(true);
 }
 
+let crtPlaced = false;
 function placeCRT(){
   if(!crt) return;
   // the typewriter is its own complete machine; a monitor behind it makes no sense
   // a prop hides itself on the themes listed in props.js
   const hide = (PROPS.crt.hideOn || []).includes(activeTheme);
   crt.group.visible = !hide;
-  if(crt.group.visible && root && !boardBounds().isEmpty()) crt.place(boardBounds());
+  // The television is furniture. It is placed once, against the first board, and
+  // then left alone: re-placing it per board sent it off-screen with the
+  // keyboard during a swap, because the board's bounds carry the slide offset.
+  if(crtPlaced) return;
+  if(crt.group.visible && root && !boardBounds().isEmpty()){
+    crt.place(boardBounds());
+    crtPlaced = true;
+  }
 }
 let activeTheme = null;
 

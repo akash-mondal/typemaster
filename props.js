@@ -101,7 +101,7 @@ export const PROPS = {
                         //   board depth (behind/infront) or width (left/right)
     lift: 0,            // raise it off the ground; 0 sits it on the same
                         //   surface as the board
-    hideOn: ['typewriter'],   // its own complete machine; a monitor behind it makes no sense
+    hideOn: [],         // the tube is the menu now, so it is always present
   },
 };
 
