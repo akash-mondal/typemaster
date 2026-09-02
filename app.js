@@ -20,7 +20,14 @@ import { rainOn, stepRain } from './rain.js';
 // A page can override SCENE without copying props.js into the project, which
 // keeps a simple project to a single index.html:
 //   <script>window.TYPEMAXX = { floor:false, fog:false, background:{...} }</script>
-if(typeof window !== 'undefined' && window.TYPEMAXX) Object.assign(SCENE, window.TYPEMAXX);
+if(typeof window !== 'undefined'){
+  // Take whatever the page set before this module ran, then hand the page the
+  // real object. Copying alone made every later write — rain, sun, sky,
+  // exposure, shadowFloor — land on a detached literal that nothing reads, so
+  // anything set on a menu change silently did nothing.
+  if(window.TYPEMAXX) Object.assign(SCENE, window.TYPEMAXX);
+  window.TYPEMAXX = SCENE;
+}
 // Reachable from a plain <script> in the page, for screens written inline.
 if(typeof window !== 'undefined'){
   window.TYPEMAXX_INPUT = INPUT;
