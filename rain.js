@@ -140,13 +140,17 @@ export function makeRainy(material){
     float slope = length(flow);
     flow = slope > 1e-4 ? flow / slope : vec3(0.0, 0.0, 0.0);
     vec3  side  = slope > 1e-4 ? normalize(cross(N, flow)) : vec3(1.0, 0.0, 0.0);
+    // The field is Heartfelt-derived and assumes v increases UPWARD, the way
+    // screen UV does, while flow points downhill. Without this flip the beads
+    // climb and their trails hang below them instead of behind them.
+    vec3  climb = -flow;
 
     // a lip holds a little water just past vertical before it drips
     float dryUnder = smoothstep(-0.10, 0.05, N.y);
     float wet = uRainA * dryUnder * smoothstep(0.06, 0.45, slope);
 
     if(wet > 0.002){
-      vec2 uv = vec2(dot(vRainW, side), dot(vRainW, flow)) * uRainS;
+      vec2 uv = vec2(dot(vRainW, side), dot(vRainW, climb)) * uRainS;
       float e = 0.012;
       float h  = rnField(uv, uRainT);
       float hx = rnField(uv + vec2(e, 0.0), uRainT);
@@ -155,7 +159,7 @@ export function makeRainy(material){
 
       // Mikkelsen: build the gradient in world space, strip its normal
       // component, and resolve — no tangent frame, correct on any orientation
-      vec3 gradW    = side * g.x + flow * g.y;
+      vec3 gradW    = side * g.x + climb * g.y;
       vec3 surfGrad = gradW - dot(gradW, N) * N;
       vec3 dN = mat3(viewMatrix) * (-surfGrad * 0.16);
       normal = normalize(normal + dN);

@@ -665,8 +665,11 @@ let rainNow = 0;
 function stepRainAmount(now, dt){
   const target = Math.max(0, Math.min(1, SCENE.rain || 0));
   if(rainNow !== target){
-    // rate-based, so it behaves the same however the frame rate moves
-    rainNow += (target - rainNow) * Math.min(1, dt * 2.2);
+    // Asymmetric, and deliberately so: water arriving is weather setting in and
+    // wants a moment, water leaving is a scene that is simply no longer wet and
+    // should not linger. Rate-based either way, so frame rate does not change it.
+    const rate = (target < rainNow) ? 7.0 : 2.2;
+    rainNow += (target - rainNow) * Math.min(1, dt * rate);
     if(Math.abs(target - rainNow) < 0.002) rainNow = target;
   }
   stepRain(now * 0.001, rainNow);
