@@ -123,14 +123,21 @@ export async function buildCRT({ url, parent }){
   //   window.TYPEMAXX = { screen(ctx, w, h, seconds, now, input){ ... } }
   // — which is how a project writes its own game without copying screens.js in.
   // A string still selects one of the built-ins by name.
-  const pick = SCENE.screen ?? PROPS.crt.screen;
-  const chosen = typeof pick === 'function' ? pick : (SCREENS[pick] ?? 'terminal');
-  // Hand the painter the keyboard as a sixth argument, so a screen never has to
-  // reach for a listener of its own — the boards already own those, and two sets
-  // of listeners fight each other.
-  const screen = typeof chosen === 'function'
-    ? (ctx, w, h, seconds, now) => chosen(ctx, w, h, seconds, now, INPUT)
-    : chosen;
+  // Resolved EVERY FRAME, not captured here. A page that hosts several games
+  // wants to hand the tube a different painter as it moves between them, and a
+  // reference taken at build time freezes whichever one happened to be set when
+  // the set was assembled.
+  //
+  // The keyboard arrives as the sixth argument so a painter never has to reach
+  // for a listener of its own — the boards already own those, and two sets of
+  // listeners fight each other.
+  const boot = SCENE.screen ?? PROPS.crt.screen;
+  const screen = (boot === 'terminal') ? 'terminal'
+    : (ctx, w, h, seconds, now) => {
+        const pick = SCENE.screen ?? PROPS.crt.screen;
+        const fn = (typeof pick === 'function') ? pick : SCREENS[pick];
+        if(typeof fn === 'function') fn(ctx, w, h, seconds, now, INPUT);
+      };
   const crt = createCrtTerminal({ width:bufW, height:bufH, screen,
                                   getOptions: () => OPTIONS });
   const phosphor = new THREE.CanvasTexture(crt.canvas);
