@@ -23,23 +23,34 @@
 // and the board stay in step. `pull()` hands you everything typed since the
 // last frame and clears it, which keeps a game independent of frame rate.
 export const INPUT = {
-  _chars: [],
-  _keys: [],
-  _back: 0,
-  _enter: 0,
+  // Two buffers. Keystrokes land in `_pend` as they arrive; once a frame the
+  // engine rotates it into `_cur`, and pull() hands `_cur` back unchanged to
+  // everyone who asks.
+  //
+  // The single-buffer version emptied itself on the first pull(), so a menu and
+  // a game reading in the same frame meant whichever ran second saw nothing —
+  // and it failed silently, as dropped keystrokes rather than an error. Any
+  // number of readers can now see the same frame's input.
+  _pend: { chars: [], keys: [], back: 0, enter: 0 },
+  _cur:  { chars: [], keys: [], back: 0, enter: 0 },
   down: new Set(),
-  push(ch){ if(this._chars.length < 64) this._chars.push(ch); },
+
+  push(ch){ if(this._pend.chars.length < 64) this._pend.chars.push(ch); },
   // Every keydown's KeyboardEvent.code, in order. `chars` only carries things
   // that produce a character, so a menu driven by the arrow keys needs this.
-  key(code){ if(this._keys.length < 64) this._keys.push(code); },
-  backspace(){ this._back++; },
-  enter(){ this._enter++; },
-  pull(){
-    const out = { chars: this._chars, keys: this._keys,
-                  back: this._back, enter: this._enter };
-    this._chars = []; this._keys = []; this._back = 0; this._enter = 0;
-    return out;
+  key(code){ if(this._pend.keys.length < 64) this._pend.keys.push(code); },
+  backspace(){ this._pend.back++; },
+  enter(){ this._pend.enter++; },
+
+  // engine-owned, once per frame before anything reads
+  _rotate(){
+    this._cur = this._pend;
+    this._pend = { chars: [], keys: [], back: 0, enter: 0 };
   },
+
+  // Safe to call as often as you like, from as many places as you like, within
+  // one frame. Treat what comes back as read-only: it is shared.
+  pull(){ return this._cur; },
 };
 
 const GREEN = '#8df0b4', DIM = '#4f9a76', AMBER = '#ffba5e',

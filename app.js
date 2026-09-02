@@ -16,6 +16,7 @@ import { buildTypewriter, makeVoice, TW } from './typewriter.js';
 import { buildCRT, buildPlainProp } from './crt.js';
 import { PROPS, SHOT, BOARD, SCENE } from './props.js';
 import { rainOn, stepRain } from './rain.js';
+import { TEXT } from './text.js';
 
 // A page can override SCENE without copying props.js into the project, which
 // keeps a simple project to a single index.html:
@@ -32,6 +33,7 @@ if(typeof window !== 'undefined'){
 if(typeof window !== 'undefined'){
   window.TYPEMAXX_INPUT = INPUT;
   window.TYPEMAXX_THREE = THREE;   // for backgrounds written in the page
+  window.TYPEMAXX_TEXT = TEXT;     // font/spacing order, fit, glow, safe width
   // The board a screen is showing, and how to change it. showBoard(name, dir)
   // slides the current keyboard off in -dir and rides the new one in from +dir,
   // so a menu moving right feels like the boards moving right. Returns false if
@@ -1744,6 +1746,7 @@ if(SCENE.background)
 renderer.setAnimationLoop(now=>{
  try {
   renderer.info.reset();
+  INPUT._rotate();          // one rotation per frame, before anything reads
   const dt = Math.min(0.05,(now-last)/1000); last=now;
   stepKeys(dt); stepFX(now); stepSwap(dt); ensureShadowFloor(); applySunOverride();
   stepRainAmount(now, dt);
