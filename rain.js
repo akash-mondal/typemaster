@@ -48,11 +48,36 @@ float rnStatic(vec2 uv, float t){
   return smoothstep(0.25, 0.0, d) * fract(n.z * 10.0) * fade;
 }
 
+// A drop arriving. Sparse cells, each firing on its own slow cycle so most of
+// the surface is doing nothing at any moment: a bright core at the point of
+// contact, then a ring that expands and fades over about a second. Without this
+// the water only ever runs — it never lands, which is what makes a wet surface
+// read as a still image with something sliding over it.
+//
+// Deliberately NOT scrolled with the falling field: an impact happens at a fixed
+// spot on the object and stays there while it fades.
+float rnImpact(vec2 uv, float t){
+  uv *= 3.6;
+  vec2 id = floor(uv);
+  vec2 gv = fract(uv) - 0.5;
+  vec3 n = rnHash3(id.x * 71.3 + id.y * 913.7);
+  float fires = step(0.68, n.x);            // most cells never fire at all
+  float k = fract(t * 0.20 + n.z);          // its own phase, so they scatter
+  vec2  p = (n.xy - 0.5) * 0.66;
+  float d = length(gv - p);
+  float life = smoothstep(0.16, 0.0, k);    // the whole event is brief
+  float ring = smoothstep(0.045, 0.0, abs(d - k * 1.5)) * life;
+  float core = smoothstep(0.055, 0.0, d) * smoothstep(0.05, 0.0, k);
+  return fires * max(ring * 0.65, core);
+}
+
 // One layer of falling beads with trails.
 float rnLayer(vec2 uv, float t){
   vec2 a = vec2(5.0, 1.0);          // cell aspect: tall, so columns read as runs
   vec2 grid = a * 2.0;
-  uv.y += t * 0.18;
+  // The smooth part of the motion is HERE: the whole field slides, so a bead
+  // keeps its place in its cell and travels continuously with it.
+  uv.y += t * 0.52;
   vec2 id = floor(uv * grid);
   uv.y += rnHash(id.x * 31.7);      // shift each column, THEN re-floor, or the
   id = floor(uv * grid);            // seed and the cell space disagree
@@ -64,8 +89,11 @@ float rnLayer(vec2 uv, float t){
   x += wig * (0.5 - abs(x)) * (n.z - 0.5);   // wander, pinned at the cell edge
   x *= 0.7;
 
-  float ti = fract(t * 0.42 + n.z);
-  float y  = (rnSaw(0.85, ti) - 0.5) * 0.9 + 0.5;
+  // ...and this only VARIES that speed a little, per drop. At full amplitude it
+  // walks the bead the whole height of its cell and snaps it back, which reads
+  // as pause, inch, pause rather than as water running.
+  float ti = fract(t * 0.30 + n.z);
+  float y  = (rnSaw(0.85, ti) - 0.5) * 0.30 + 0.5;
   float d  = length((st - vec2(x, y)) * a.yx);
   float bead = smoothstep(0.4, 0.0, d) * step(0.86, n.y);   // most cells stay dry
 
@@ -82,7 +110,8 @@ float rnLayer(vec2 uv, float t){
 float rnField(vec2 uv, float t){
   float c = rnStatic(uv, t) * 0.55
           + rnLayer(uv, t)
-          + rnLayer(uv * 1.85 + 7.3, t * 1.24) * 0.75;
+          + rnLayer(uv * 1.85 + 7.3, t * 1.24) * 0.75
+          + rnImpact(uv, t) * 0.85;
   return smoothstep(0.30, 1.0, c);
 }
 `;
