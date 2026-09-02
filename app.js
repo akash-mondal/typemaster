@@ -15,6 +15,7 @@ import { THEMES } from './themes.js';
 import { buildTypewriter, makeVoice, TW } from './typewriter.js';
 import { buildCRT, buildPlainProp } from './crt.js';
 import { PROPS, SHOT, BOARD, SCENE } from './props.js';
+import { rainOn, stepRain } from './rain.js';
 
 // A page can override SCENE without copying props.js into the project, which
 // keeps a simple project to a single index.html:
@@ -648,6 +649,22 @@ function applySunOverride(){
   if(SCENE.exposure !== undefined) renderer.toneMappingExposure = SCENE.exposure;
 }
 
+// Water on the machine, eased rather than switched. It belongs to a scene, not
+// to a board — the temple is raining and nothing else is — so the page moves the
+// target and this closes the gap over about a second. Swapping boards, or
+// escaping to the title and coming back, therefore dries off and wets up rather
+// than cutting.
+let rainNow = 0;
+function stepRainAmount(now, dt){
+  const target = Math.max(0, Math.min(1, SCENE.rain || 0));
+  if(rainNow !== target){
+    // rate-based, so it behaves the same however the frame rate moves
+    rainNow += (target - rainNow) * Math.min(1, dt * 2.2);
+    if(Math.abs(target - rainNow) < 0.002) rainNow = target;
+  }
+  stepRain(now * 0.001, rainNow);
+}
+
 function ensureShadowFloor(){
   const want = SCENE.shadowFloor === true;
   if(want && !shadowFloor){
@@ -809,6 +826,7 @@ async function buildModelTheme(name){
   placeBoard();
   placeCRT();
   fitCamera();
+  rainOn(root); if(crt) rainOn(crt.model);
   if(T.ao && ensureAO()) configureAO(T.ao);
 }
 
@@ -1164,6 +1182,7 @@ function buildTheme(name){
   placeBoard();
   placeCRT();
   fitCamera();
+  rainOn(root); if(crt) rainOn(crt.model);
   setPack(T.audio, T.rate);
   markPicker(name);
 }
@@ -1494,6 +1513,7 @@ buildTheme(Object.keys(THEMES)[0]);
     if(spec.screen !== undefined) crt = built;   // the one with a step()
   }
   placeBoard(); placeCRT(); fitCamera();
+  rainOn(root); if(crt) rainOn(crt.model);
 })().catch(e => showErr('props: ' + (e.stack || e.message)));
 
 // ══════════════════════════════════════════════════════════ loop
@@ -1716,6 +1736,7 @@ renderer.setAnimationLoop(now=>{
   renderer.info.reset();
   const dt = Math.min(0.05,(now-last)/1000); last=now;
   stepKeys(dt); stepFX(now); stepSwap(dt); ensureShadowFloor(); applySunOverride();
+  stepRainAmount(now, dt);
   stepBackground(now, dt);
   // (the volume knob used to idle-spin here; the scene is static now)
   if(root && root.userData.step) root.userData.step(dt);

@@ -66,6 +66,11 @@ export const SCENE = {
   //   exposure: 0.95,
   sun: null,
   sky: null,
+
+  // Water running down the machine, 0 to 1. It belongs to the weather behind it
+  // rather than to a board, so a page sets this alongside the background and the
+  // engine eases between values — swaps and escapes dry off rather than cut.
+  rain: 0,
   fog: true,          // the distance haze that hides the floor's far edge
 
   // A LIVE BACKGROUND behind everything. Point `module` at a file that exports
