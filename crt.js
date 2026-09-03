@@ -118,13 +118,16 @@ export async function buildCRT({ url, parent }){
   // The picture buffer scales with the set. A larger CRT magnifies the same
   // texture further, so holding this fixed would just make the image softer as
   // the cabinet grew — the tube has to gain pixels, not only inches.
-  // A page can ask for a fixed low-resolution grid with hard pixel edges —
-  // SCENE.pixel = { width: 320, height: 180 } — which is how the authored
-  // "nintendo" variant gets its 8-bit look. Everything drawn then lands on a
-  // real pixel, so a hand-authored 5x7 font reads as a font and not as mush.
-  const px = SCENE.pixel;
-  const bufH = px ? px.height : 1000;
-  const bufW = px ? px.width  : Math.round(1000*aspect);
+  // The output buffer is ALWAYS full resolution and always the tube's own
+  // aspect. SCENE.pixel changes the DRAWING SURFACE only — a small fixed grid
+  // that the shader then upscales with nearest-neighbour. That is how the
+  // authored "nintendo" variant works, and it matters: shrinking the output
+  // buffer instead throws away the tube's resolution, so everything not drawn
+  // as pixel art — a title card, a menu — comes back coarse and ruined.
+  const bufH = 1000, bufW = Math.round(bufH*aspect);
+  const pixelStyle = p => p
+    ? { filtering: 'nearest', surface: { mode: 'fixed', width: p.width, height: p.height } }
+    : { filtering: 'linear',  surface: { mode: 'buffer' } };
   // What runs on the tube. A page can hand in its own painter directly —
   //   window.TYPEMAXX = { screen(ctx, w, h, seconds, now, input){ ... } }
   // — which is how a project writes its own game without copying screens.js in.
@@ -146,11 +149,8 @@ export async function buildCRT({ url, parent }){
       };
   const crt = createCrtTerminal({ width:bufW, height:bufH, screen,
                                   getOptions: () => OPTIONS,
-                                  style: px ? { filtering: 'nearest',
-                                                surface: { mode:'fixed',
-                                                           width: px.width,
-                                                           height: px.height } }
-                                            : null });
+                                  style: SCENE.pixel ? pixelStyle(SCENE.pixel) : null });
+  let pixelKey = SCENE.pixel ? (SCENE.pixel.width + 'x' + SCENE.pixel.height) : 'off';
   const phosphor = new THREE.CanvasTexture(crt.canvas);
   phosphor.colorSpace = THREE.SRGBColorSpace;
   // the offscreen canvas is top-origin and these UVs put v=0 at the bottom of
@@ -231,6 +231,12 @@ export async function buildCRT({ url, parent }){
       bodyMat.needsUpdate = true;
     },
     step(now){
+      // Watch for the page turning the pixel grid on or off. A game wants a
+      // hard 320x240; a title card wants the tube's full resolution.
+      const p = SCENE.pixel;
+      const key = p ? (p.width + 'x' + p.height) : 'off';
+      if(key !== pixelKey){ pixelKey = key; crt.setSurface(pixelStyle(p)); }
+
       crt.render(now); phosphor.needsUpdate = true;
       if(bodyMat && bodyT < 1){
         const dt = bodyLast ? Math.min(0.05, (now - bodyLast) / 1000) : 0;

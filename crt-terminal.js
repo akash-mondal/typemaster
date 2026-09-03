@@ -354,6 +354,17 @@ export function createCrtTerminal({ width = 1024, height = 768,
   return {
     canvas,
     resize(w, h){ width = Math.max(1, w|0); height = Math.max(1, h|0); resize(); },
+    // Change the surface or the filtering while running. The output buffer is
+    // untouched — only the grid that is drawn into, and how it is sampled.
+    // Named setSurface, not setStyle: there is already an internal setStyle in
+    // this file for text colour, and two things with one name in one closure is
+    // a bug waiting to be written.
+    setSurface(patch){
+      if(!patch) return;
+      Object.assign(style, patch);
+      applyStyle();
+      resize();
+    },
     render(now){
       const options = { ...CRT_DEFAULTS, ...getOptions() };
       const seconds = (now - startedAt) * 0.001 * options.speed;
