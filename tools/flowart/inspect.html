@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>FLOW — asset inspector</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#111621; --line:#1e2735; --ink:#e8f4ec;
+    --dim:#6b8a7a; --hot:#8df0b4; --gold:#f4b93d; --red:#d8454e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
+  header{display:flex;align-items:center;gap:16px;padding:10px 16px;
+         border-bottom:1px solid var(--line);background:var(--panel)}
+  header h1{margin:0;font-size:13px;letter-spacing:.14em;color:var(--gold)}
+  header .sp{flex:1}
+  .stat{color:var(--dim)}
+  .stat b{color:var(--ink);font-weight:600}
+  main{display:grid;grid-template-columns:190px 1fr 240px;height:calc(100vh - 43px)}
+  aside{border-right:1px solid var(--line);overflow:auto;padding:10px}
+  .right{border-right:0;border-left:1px solid var(--line)}
+  h2{font-size:10px;letter-spacing:.16em;color:var(--dim);margin:16px 0 6px;
+     text-transform:uppercase}
+  h2:first-child{margin-top:0}
+  .clip{display:block;width:100%;text-align:left;padding:7px 9px;margin-bottom:3px;
+        background:transparent;border:1px solid transparent;border-radius:4px;
+        color:var(--dim);font:inherit;cursor:pointer}
+  .clip:hover{border-color:var(--line);color:var(--ink)}
+  .clip.on{background:#16202c;border-color:var(--hot);color:var(--hot)}
+  .clip span{float:right;color:var(--dim)}
+  section{overflow:auto;padding:18px;display:flex;flex-direction:column;gap:18px;
+          align-items:center}
+  .stage{position:relative;border:1px solid var(--line);border-radius:6px;
+         image-rendering:pixelated;background-size:16px 16px}
+  canvas{image-rendering:pixelated;display:block}
+  .strip{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+  .cell{border:1px solid var(--line);border-radius:4px;padding:4px;cursor:pointer;
+        background:#0f141d;text-align:center}
+  .cell.on{border-color:var(--gold)}
+  .cell div{color:var(--dim);font-size:10px;margin-top:3px}
+  .cell.on div{color:var(--gold)}
+  label{display:flex;align-items:center;gap:7px;margin:5px 0;color:var(--dim);
+        cursor:pointer}
+  input[type=range]{width:100%}
+  .swatches{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+  .sw{aspect-ratio:1;border-radius:3px;border:1px solid #0006;position:relative}
+  .sw b{position:absolute;inset:auto 0 -1px 0;font-size:8px;text-align:center;
+        color:#fff9;font-weight:400}
+  .note{color:var(--dim);max-width:520px;text-align:center}
+  kbd{background:#1a2230;border:1px solid var(--line);border-radius:3px;
+      padding:1px 5px;color:var(--ink)}
+</style>
+
+<header>
+  <h1>FLOW ASSETS</h1>
+  <span class="stat">atlas <b id="sAtlas">–</b></span>
+  <span class="stat">frames <b id="sFrames">–</b></span>
+  <span class="stat">built <b id="sBuilt">–</b></span>
+  <span class="sp"></span>
+  <span class="stat">rebuild with <kbd>python3 tools/flowart/build.py</kbd> — this page reloads itself</span>
+</header>
+
+<main>
+  <aside id="clips"></aside>
+
+  <section>
+    <div class="stage" id="stage"><canvas id="view"></canvas></div>
+    <div class="note" id="caption"></div>
+    <div class="strip" id="strip"></div>
+    <h2 style="margin-top:8px">Atlas</h2>
+    <div class="stage"><canvas id="atlas"></canvas></div>
+  </section>
+
+  <aside class="right">
+    <h2>Zoom</h2>
+    <input type="range" id="zoom" min="1" max="12" step="1" value="7">
+    <div class="stat" id="zoomLabel">7×</div>
+
+    <h2>Speed</h2>
+    <input type="range" id="speed" min="0" max="200" step="5" value="100">
+    <div class="stat" id="speedLabel">100%</div>
+
+    <h2>View</h2>
+    <label><input type="checkbox" id="play" checked> play</label>
+    <label><input type="checkbox" id="onion"> onion skin</label>
+    <label><input type="checkbox" id="anchor" checked> anchor + ground line</label>
+    <label><input type="checkbox" id="grid"> pixel grid</label>
+    <label><input type="checkbox" id="crt"> CRT preview</label>
+
+    <h2>Background</h2>
+    <label><input type="radio" name="bg" value="sky" checked> night sky</label>
+    <label><input type="radio" name="bg" value="roof"> roof face</label>
+    <label><input type="radio" name="bg" value="checker"> checker</label>
+    <label><input type="radio" name="bg" value="white"> white</label>
+
+    <h2>Palette</h2>
+    <div class="swatches" id="pal"></div>
+  </aside>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+let M = null, IMG = null, clip = null, frame = 0, acc = 0, last = 0, stamp = 0;
+
+const view = $('#view'), vctx = view.getContext('2d');
+const atlasC = $('#atlas'), actx = atlasC.getContext('2d');
+
+async function load(){
+  const bust = '?t=' + Date.now();
+  const m = await (await fetch('../../assets/flow/manifest.json' + bust)).json();
+  const img = new Image();
+  img.src = '../../assets/flow/atlas.png' + bust;
+  await img.decode();
+  M = m; IMG = img;
+
+  $('#sAtlas').textContent = img.width + '×' + img.height;
+  $('#sFrames').textContent = Object.values(m.clips)
+    .reduce((n, c) => n + c.frames.length, 0);
+  $('#sBuilt').textContent = new Date().toLocaleTimeString();
+
+  buildClips();
+  buildPalette();
+  drawAtlas();
+  if (!clip || !m.clips[clip]) clip = Object.keys(m.clips)[0];
+  select(clip);
+}
+
+function buildClips(){
+  const box = $('#clips');
+  box.innerHTML = '<h2>Performance</h2>';
+  const perf = [
+    ['__scene', 'run · jump · loop',
+     'running the ledge, jumping the gap, landing, running'],
+    ['__fight', 'run · strike · kill',
+     'mid-run: the ronin stands in his way, one swipe, the ronin drops, he runs on'],
+    ['__death', 'run · struck · die',
+     'the ronin gets his cut in first and the ninja goes down'],
+  ];
+  for (const [id, label, cap] of perf){
+    const s = document.createElement('button');
+    s.className = 'clip' + (clip === id ? ' on' : '');
+    s.innerHTML = label + '<span>▶</span>';
+    s.onclick = () => { clip = id; buildClips();
+                        $('#strip').innerHTML = '';
+                        $('#caption').textContent = cap; };
+    box.appendChild(s);
+  }
+  box.insertAdjacentHTML('beforeend', '<h2>Clips</h2>');
+  for (const [name, c] of Object.entries(M.clips)){
+    const b = document.createElement('button');
+    b.className = 'clip' + (name === clip ? ' on' : '');
+    b.innerHTML = name + '<span>' + c.frames.length + 'f</span>';
+    b.onclick = () => select(name);
+    box.appendChild(b);
+  }
+}
+
+function buildPalette(){
+  const box = $('#pal');
+  box.innerHTML = '';
+  for (const [k, v] of Object.entries(M.palette || {})){
+    const d = document.createElement('div');
+    d.className = 'sw'; d.style.background = v;
+    d.title = k + '  ' + v;
+    d.innerHTML = '<b>' + k + '</b>';
+    box.appendChild(d);
+  }
+}
+
+function select(name){
+  clip = name; frame = 0; acc = 0;
+  document.querySelectorAll('.clip').forEach(b =>
+    b.classList.toggle('on', b.textContent.startsWith(name)));
+  const c = M.clips[name];
+  $('#caption').textContent =
+    name + ' — ' + c.frames.length + ' frames at ' + c.ms + 'ms (' +
+    Math.round(1000 / c.ms) + ' fps), cell ' + c.frames[0][2] + '×' + c.frames[0][3];
+  buildStrip();
+}
+
+function buildStrip(){
+  const box = $('#strip'); box.innerHTML = '';
+  const c = M.clips[clip];
+  c.frames.forEach((f, i) => {
+    const cell = document.createElement('div');
+    cell.className = 'cell' + (i === frame ? ' on' : '');
+    const cv = document.createElement('canvas');
+    const s = 3;
+    cv.width = f[2] * s; cv.height = f[3] * s;
+    const g = cv.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    g.drawImage(IMG, f[0], f[1], f[2], f[3], 0, 0, cv.width, cv.height);
+    cell.appendChild(cv);
+    const lab = document.createElement('div'); lab.textContent = i;
+    cell.appendChild(lab);
+    cell.onclick = () => { frame = i; $('#play').checked = false; buildStrip(); };
+    box.appendChild(cell);
+  });
+}
+
+function drawAtlas(){
+  const s = 2;
+  atlasC.width = IMG.width * s; atlasC.height = IMG.height * s;
+  actx.imageSmoothingEnabled = false;
+  actx.fillStyle = '#0f141d';
+  actx.fillRect(0, 0, atlasC.width, atlasC.height);
+  actx.drawImage(IMG, 0, 0, atlasC.width, atlasC.height);
+}
+
+const BG = {
+  sky: '#111829', roof: '#151A22', white: '#ffffff',
+  checker: null
+};
+
+// ---- continuous performances
+const SCENE = { W: 320, H: 240, roofY: 158, pitch: 168, roofW: 132, speed: 62 };
+
+function beginScene(){
+  const z = Math.max(2, +$('#zoom').value - 3);
+  view.width = SCENE.W * z; view.height = SCENE.H * z;
+  vctx.imageSmoothingEnabled = false;
+  vctx.setTransform(z, 0, 0, z, 0, 0);
+  return z;
+}
+
+function endScene(){
+  if ($('#crt').checked){
+    vctx.globalAlpha = .30; vctx.fillStyle = '#000';
+    for (let y = 0; y < SCENE.H; y += 2) vctx.fillRect(0, y, SCENE.W, 0.5);
+    vctx.globalAlpha = 1;
+  }
+  vctx.setTransform(1, 0, 0, 1, 0, 0);
+}
+
+function sky(scroll){
+  const P = M.palette || {};
+  const bands = [P.sky0 || '#05070E', P.sky1 || '#0A0F1C',
+                 P.sky2 || '#111829', P.sky3 || '#1A2338'];
+  for (let i = 0; i < 4; i++){
+    vctx.fillStyle = bands[i]; vctx.fillRect(0, i * 40, SCENE.W, 40);
+  }
+  vctx.fillStyle = P.tile1 || '#3E2830';
+  vctx.beginPath(); vctx.arc(252, 44, 20, 0, 6.283); vctx.fill();
+  vctx.fillStyle = P.bld0 || '#070A11';
+  for (let i = -1; i < 12; i++){
+    const x = Math.round(i * 46 - (scroll * 0.18) % 46);
+    const h = 30 + ((i % 3) * 14);
+    vctx.fillRect(x, SCENE.roofY - h - 22, 38, h + 22);
+  }
+}
+
+function flatRoof(scroll){
+  const P = M.palette || {};
+  vctx.fillStyle = P.tile1 || '#3E2830';
+  vctx.fillRect(0, SCENE.roofY, SCENE.W, 3);
+  vctx.fillStyle = P.tile2 || '#563843';
+  vctx.fillRect(0, SCENE.roofY, SCENE.W, 1);
+  vctx.fillStyle = P.bld1 || '#0D1220';
+  vctx.fillRect(0, SCENE.roofY + 3, SCENE.W, SCENE.H - SCENE.roofY);
+  vctx.fillStyle = P.lamp2 || '#F2A63C';
+  for (let i = -1; i < 9; i++){
+    const x = Math.round(i * 44 - scroll % 44);
+    vctx.fillRect(x, SCENE.roofY + 18, 3, 4);
+  }
+}
+
+function put(name, i, cx, footY){
+  const c = M.clips[name]; if (!c) return;
+  const f = c.frames[Math.max(0, Math.min(c.frames.length - 1, i | 0))];
+  vctx.drawImage(IMG, f[0], f[1], f[2], f[3],
+                 Math.round(cx - f[2] / 2), Math.round(footY - f[3] + 2), f[2], f[3]);
+}
+
+function loopFrame(name, t){
+  const c = M.clips[name];
+  return Math.floor(t * 1000 / c.ms) % c.frames.length;
+}
+
+// run in, one swipe, blood, the ronin drops, and he runs on
+function drawFight(now, lethalToNinja){
+  beginScene();
+  const speed = +$('#speed').value / 100;
+
+  // timeline in seconds
+  const T = lethalToNinja
+    ? { approach: 1.50, wind: 0.30, contact: 0.12, down: 0.80, hold: 1.40 }
+    : { approach: 1.50, lunge: 0.18, contact: 0.10, follow: 0.22, resume: 2.40 };
+  const keys = Object.keys(T);
+  const period = keys.reduce((a, k) => a + T[k], 0);
+  const t = (now / 1000 * speed) % period;
+
+  // which phase, and how far through it
+  let acc = 0, phase = keys[0], u = 0;
+  for (const k of keys){
+    if (t < acc + T[k]){ phase = k; u = (t - acc) / T[k]; break; }
+    acc += T[k];
+  }
+
+  const FOOT = SCENE.roofY + 1;
+  const HOME = 112;          // his resting screen x
+  const REACH = 148;         // how far he lunges - the blade must OVERLAP
+  const EX = 176;            // where the ronin stands
+
+  // the world scrolls only while he is actually running. Freezing it through
+  // the strike is the hit-stop: without it the contact has no weight.
+  let scroll = T.approach * SCENE.speed;
+  if (phase === 'approach') scroll = t * SCENE.speed;
+  else if (phase === 'resume') scroll += u * T.resume * SCENE.speed;
+
+  sky(scroll); flatRoof(scroll);
+
+  const recede = phase === 'resume' ? u * T.resume * SCENE.speed : 0;
+  const ex = phase === 'approach'
+    ? 268 - (t / T.approach) * (268 - EX)
+    : EX - recede;
+
+  // ---------------------------------------------------------------- he wins
+  if (!lethalToNinja){
+    const nx = phase === 'lunge' ? HOME + u * (REACH - HOME)
+             : phase === 'contact' || phase === 'follow' ? REACH
+             : phase === 'resume' ? REACH - u * (REACH - HOME)
+             : HOME;
+
+    // corpse first, so he runs in front of it
+    if (phase === 'follow' || phase === 'resume'){
+      const dc = M.clips.enemy_die;
+      const df = phase === 'follow' ? u * 2
+               : Math.min(dc.frames.length - 1, 2 + u * T.resume * 1000 / dc.ms);
+      if (df >= dc.frames.length - 2.2){
+        const pc = M.clips.blood_pool;
+        const pf = Math.min(pc.frames.length - 1,
+                            (df - (dc.frames.length - 2.2)) * 3);
+        put('blood_pool', pf, ex + 2, FOOT + 2);
+      }
+      put('enemy_die', df, ex, FOOT);
+    } else {
+      put('enemy_idle', loopFrame('enemy_idle', t), ex, FOOT);
+    }
+
+    if (phase === 'approach' || phase === 'resume'){
+      put('ninja_run', loopFrame('ninja_run', t), nx, FOOT);
+    } else if (phase === 'lunge'){
+      put('ninja_strike', u * 2, nx, FOOT);
+    } else if (phase === 'contact'){
+      put('ninja_strike', 2, nx, FOOT);
+      put('slash', u * 3, EX - 6, FOOT - 20);
+      put('blood_spray', u * 2, EX + 2, FOOT - 18);
+    } else {
+      put('ninja_strike', 3, nx, FOOT);
+      put('blood_spray', 2 + u * 4, EX + 3, FOOT - 18);
+    }
+    endScene();
+    return;
+  }
+
+  // --------------------------------------------------------------- he loses
+  // exactly ONE enemy clip per phase - drawing idle first and overlaying the
+  // wind-up on top of it stacked two ronin in the same spot
+  if (phase === 'approach')     put('enemy_idle', loopFrame('enemy_idle', t), ex, FOOT);
+  else if (phase === 'wind')    put('enemy_wind', u * 2, EX, FOOT);
+  else if (phase === 'contact') put('enemy_strike', u * 2, EX, FOOT);
+  else                          put('enemy_idle', 0, EX, FOOT);
+
+  // he keeps closing through the wind-up, so the ronin's cut can actually
+  // land. Standing 64px away and dying to thin air is the same no-contact bug.
+  const INTO = EX - 30;
+  const nx = phase === 'approach' ? HOME
+           : phase === 'wind' ? HOME + u * (INTO - HOME)
+           : INTO;
+
+  if (phase === 'approach' || phase === 'wind'){
+    put('ninja_run', loopFrame('ninja_run', t), nx, FOOT);
+  } else if (phase === 'contact'){
+    put('ninja_die', u * 2, nx, FOOT);
+    put('slash', u * 3, nx + 12, FOOT - 20);
+    put('blood_spray', u * 3, nx + 6, FOOT - 18);
+  } else {
+    const dc = M.clips.ninja_die;
+    const df = phase === 'down'
+      ? Math.min(dc.frames.length - 1, 1 + u * T.down * 1000 / dc.ms)
+      : dc.frames.length - 1;
+    if (phase === 'hold')
+      put('blood_pool', Math.min(3, u * 5), nx, FOOT + 2);
+    put('ninja_die', df, nx, FOOT);
+    if (phase === 'down') put('blood_spray', 3 + u * 3, nx + 6, FOOT - 14);
+  }
+  endScene();
+}
+
+function tick(now){
+  requestAnimationFrame(tick);
+  if (!M || !IMG) return;
+  const dt = last ? now - last : 0; last = now;
+
+  if (clip === '__scene'){ drawScene(now); return; }
+  if (clip === '__fight'){ drawFight(now, false); return; }
+  if (clip === '__death'){ drawFight(now, true); return; }
+
+  const c = M.clips[clip];
+  if ($('#play').checked){
+    acc += dt * (+$('#speed').value / 100);
+    while (acc >= c.ms){ acc -= c.ms; frame = (frame + 1) % c.frames.length;
+                         buildStrip(); }
+  }
+
+  const z = +$('#zoom').value;
+  const f = c.frames[frame];
+  const W = f[2], H = f[3];
+  view.width = W * z; view.height = H * z;
+  vctx.imageSmoothingEnabled = false;
+
+  const mode = document.querySelector('input[name=bg]:checked').value;
+  if (mode === 'checker'){
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
+      vctx.fillStyle = ((x >> 1) + (y >> 1)) % 2 ? '#20242c' : '#171b22';
+      vctx.fillRect(x * z, y * z, z, z);
+    }
+  } else {
+    vctx.fillStyle = BG[mode];
+    vctx.fillRect(0, 0, view.width, view.height);
+  }
+
+  if ($('#onion').checked){
+    const p = c.frames[(frame - 1 + c.frames.length) % c.frames.length];
+    vctx.globalAlpha = 0.28;
+    vctx.drawImage(IMG, p[0], p[1], p[2], p[3], 0, 0, p[2] * z, p[3] * z);
+    vctx.globalAlpha = 1;
+  }
+
+  vctx.drawImage(IMG, f[0], f[1], W, H, 0, 0, W * z, H * z);
+
+  if ($('#grid').checked && z >= 4){
+    vctx.strokeStyle = 'rgba(255,255,255,.07)';
+    vctx.lineWidth = 1;
+    for (let x = 0; x <= W; x++){
+      vctx.beginPath(); vctx.moveTo(x * z + .5, 0);
+      vctx.lineTo(x * z + .5, H * z); vctx.stroke();
+    }
+    for (let y = 0; y <= H; y++){
+      vctx.beginPath(); vctx.moveTo(0, y * z + .5);
+      vctx.lineTo(W * z, y * z + .5); vctx.stroke();
+    }
+  }
+
+  if ($('#anchor').checked){
+    const a = c.anchor || [W >> 1, H - 1];
+    vctx.strokeStyle = 'rgba(141,240,180,.45)';
+    vctx.beginPath();
+    vctx.moveTo(0, (a[1] + 1) * z + .5); vctx.lineTo(W * z, (a[1] + 1) * z + .5);
+    vctx.stroke();
+    vctx.strokeStyle = 'rgba(244,185,61,.8)';
+    vctx.beginPath();
+    vctx.moveTo(a[0] * z + z / 2, (a[1] + 1) * z - 5 * z);
+    vctx.lineTo(a[0] * z + z / 2, (a[1] + 1) * z + 2 * z);
+    vctx.stroke();
+  }
+
+  if ($('#crt').checked){
+    vctx.globalAlpha = .30;
+    vctx.fillStyle = '#000';
+    for (let y = 0; y < view.height; y += 3) vctx.fillRect(0, y, view.width, 1);
+    vctx.globalAlpha = 1;
+  }
+}
+requestAnimationFrame(tick);
+
+for (const id of ['zoom', 'speed']){
+  $('#' + id).oninput = e => {
+    $('#' + id + 'Label').textContent =
+      e.target.value + (id === 'zoom' ? '×' : '%');
+  };
+}
+
+// poll for a rebuild and reload without touching the page
+setInterval(async () => {
+  try {
+    const r = await fetch('../../assets/flow/manifest.json?t=' + Date.now(),
+                          { method: 'HEAD' });
+    const t = r.headers.get('last-modified');
+    if (stamp && t !== stamp) load();
+    stamp = t;
+  } catch (e) {}
+}, 1200);
+
+load();
+</script>
