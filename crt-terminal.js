@@ -173,7 +173,8 @@ export const CRT_DEFAULTS = { speed:1, typeSpeed:1, motion:1 };
 // screen mesh it will be mapped onto so nothing is stretched.
 export function createCrtTerminal({ width = 1024, height = 768,
                                    getOptions = () => CRT_DEFAULTS,
-                                   screen = 'terminal', redrawMs = 0 } = {}){
+                                   screen = 'terminal', redrawMs = 0,
+                                   style: style_ = null } = {}){
   const canvas = document.createElement("canvas");
   const host = { getBoundingClientRect: () => ({ width, height }) };
 
@@ -215,7 +216,13 @@ export function createCrtTerminal({ width = 1024, height = 768,
   let bw=1, bh=1, cssWidth=1, cssHeight=1, fontSize=14, lineHeight=20, startY=0,
       charWidth=8, caretX=0, caretY=0, typed=0, done=false, textDirty=true,
       lastTextAt=0, lastReveal=-1, lastBlink=-1;
-  const style = TERMINAL_STYLE;
+  // The authored terminal style, unless the caller asks for something else.
+  // The variants in the source bundle differ ONLY in this object — the
+  // "nintendo" one is the same renderer at { filtering:'nearest',
+  // surface:{ mode:'fixed', width:320, height:180 } }, which is what makes every
+  // sprite and letter land on a hard pixel edge instead of being smeared by
+  // bilinear filtering.
+  const style = style_ ? Object.assign({}, TERMINAL_STYLE, style_) : TERMINAL_STYLE;
   const startedAt = performance.now();
 
   const applyStyle = () => {

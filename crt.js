@@ -118,7 +118,13 @@ export async function buildCRT({ url, parent }){
   // The picture buffer scales with the set. A larger CRT magnifies the same
   // texture further, so holding this fixed would just make the image softer as
   // the cabinet grew — the tube has to gain pixels, not only inches.
-  const bufH = 1000, bufW = Math.round(bufH*aspect);
+  // A page can ask for a fixed low-resolution grid with hard pixel edges —
+  // SCENE.pixel = { width: 320, height: 180 } — which is how the authored
+  // "nintendo" variant gets its 8-bit look. Everything drawn then lands on a
+  // real pixel, so a hand-authored 5x7 font reads as a font and not as mush.
+  const px = SCENE.pixel;
+  const bufH = px ? px.height : 1000;
+  const bufW = px ? px.width  : Math.round(1000*aspect);
   // What runs on the tube. A page can hand in its own painter directly —
   //   window.TYPEMAXX = { screen(ctx, w, h, seconds, now, input){ ... } }
   // — which is how a project writes its own game without copying screens.js in.
@@ -139,7 +145,12 @@ export async function buildCRT({ url, parent }){
         if(typeof fn === 'function') fn(ctx, w, h, seconds, now, INPUT);
       };
   const crt = createCrtTerminal({ width:bufW, height:bufH, screen,
-                                  getOptions: () => OPTIONS });
+                                  getOptions: () => OPTIONS,
+                                  style: px ? { filtering: 'nearest',
+                                                surface: { mode:'fixed',
+                                                           width: px.width,
+                                                           height: px.height } }
+                                            : null });
   const phosphor = new THREE.CanvasTexture(crt.canvas);
   phosphor.colorSpace = THREE.SRGBColorSpace;
   // the offscreen canvas is top-origin and these UVs put v=0 at the bottom of
