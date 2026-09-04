@@ -153,6 +153,16 @@ def build():
     }
     clips = {k: (v, ms.get(k, 100)) for k, v in dv.items()}
 
+    # Anchors are PER CLIP, from that clip's own frame size. Using one anchor
+    # taken from the largest cell drew the 16x16 slash 39px above its target -
+    # it appeared over the fighters' heads instead of between their blades.
+    #   'foot'   the point the character stands on: bottom centre
+    #   'centre' the point an effect happens at: middle of the sprite
+    ANCHOR = {
+        "slash": "centre", "blood_spray": "centre",
+        "blood_pool": "foot",
+    }
+
     entries = []
     for name, (frames, ms) in clips.items():
         for i, f in enumerate(frames):
@@ -178,8 +188,12 @@ def build():
     for n, (name, i, f, ms) in enumerate(entries):
         x, y = (n % cols) * cw, (n // cols) * ch
         atlas.paste(f.to_image(), (x, y))
+        mode = ANCHOR.get(name, "foot")
+        anchor = ([f.w // 2, f.h // 2] if mode == "centre"
+                  else [f.w // 2, f.h - 1])
         clip = manifest["clips"].setdefault(
-            name, {"ms": ms, "anchor": [cw // 2, ch - 1], "frames": []})
+            name, {"ms": ms, "anchor": anchor, "anchorMode": mode,
+                   "frames": []})
         clip["frames"].append([x, y, f.w, f.h])
 
     # ---- fonts: bake Pixel Operator (CC0) into the same atlas

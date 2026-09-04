@@ -56,6 +56,7 @@
         20,
         39
       ],
+      "anchorMode": "foot",
       "frames": [
         [
           0,
@@ -113,6 +114,7 @@
         20,
         39
       ],
+      "anchorMode": "foot",
       "frames": [
         [
           0,
@@ -158,6 +160,7 @@
         20,
         39
       ],
+      "anchorMode": "foot",
       "frames": [
         [
           240,
@@ -191,6 +194,7 @@
         20,
         39
       ],
+      "anchorMode": "foot",
       "frames": [
         [
           80,
@@ -224,6 +228,7 @@
         20,
         39
       ],
+      "anchorMode": "foot",
       "frames": [
         [
           240,
@@ -269,6 +274,7 @@
         20,
         39
       ],
+      "anchorMode": "foot",
       "frames": [
         [
           160,
@@ -302,6 +308,7 @@
         20,
         39
       ],
+      "anchorMode": "foot",
       "frames": [
         [
           0,
@@ -323,6 +330,7 @@
         20,
         39
       ],
+      "anchorMode": "foot",
       "frames": [
         [
           80,
@@ -344,6 +352,7 @@
         20,
         39
       ],
+      "anchorMode": "foot",
       "frames": [
         [
           160,
@@ -386,9 +395,10 @@
     "slash": {
       "ms": 45,
       "anchor": [
-        20,
-        39
+        8,
+        8
       ],
+      "anchorMode": "centre",
       "frames": [
         [
           80,
@@ -413,9 +423,10 @@
     "blood_spray": {
       "ms": 55,
       "anchor": [
-        20,
-        39
+        12,
+        12
       ],
+      "anchorMode": "centre",
       "frames": [
         [
           200,
@@ -458,9 +469,10 @@
     "blood_pool": {
       "ms": 90,
       "anchor": [
-        20,
-        39
+        15,
+        7
       ],
+      "anchorMode": "foot",
       "frames": [
         [
           120,
