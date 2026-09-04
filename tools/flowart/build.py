@@ -133,6 +133,8 @@ class Canvas:
 # --------------------------------------------------------------------------
 
 import derive as DV
+import font as FT
+from PIL import ImageFont as _IF
 
 NW, NH = DV.OUT_W, DV.OUT_H
 
@@ -179,6 +181,48 @@ def build():
         clip = manifest["clips"].setdefault(
             name, {"ms": ms, "anchor": [cw // 2, ch - 1], "frames": []})
         clip["frames"].append([x, y, f.w, f.h])
+
+    # ---- fonts: bake Pixel Operator (CC0) into the same atlas
+    faces = FT.faces()
+    fy = rows * ch                      # start below the sprite rows
+    manifest["fonts"] = {}
+    pad_rows = []
+    for fname, (ttf, size) in FT.FACES.items():
+        ft = _IF.truetype(os.path.join(FT.TTF, ttf), size)
+        asc, desc = ft.getmetrics()
+        g = faces[fname]
+        entry = {"height": asc + desc, "line": asc + desc + 2,
+                 "baseline": asc, "glyphs": {}}
+        fx = 0
+        rowh = 0
+        for cch in FT.CHARS:
+            e = g[cch]
+            im = e["img"]
+            if fx + im.width > 512:
+                fx = 0
+                fy += rowh + 1
+                rowh = 0
+            pad_rows.append((im, fx, fy))
+            entry["glyphs"][cch] = [fx, fy, im.width, im.height,
+                                    e["adv"], e["dx"], e["dy"]]
+            fx += im.width + 1
+            rowh = max(rowh, im.height)
+        fy += rowh + 2
+        manifest["fonts"][fname] = entry
+
+    # grow the atlas to fit the font rows, then paste them
+    need_h = fy + 2
+    if need_h > atlas.height or 512 > atlas.width:
+        bigger = Image.new("RGBA", (max(atlas.width, 512),
+                                    max(atlas.height, need_h)), (0, 0, 0, 0))
+        bigger.paste(atlas, (0, 0))
+        atlas = bigger
+    for im, x, y in pad_rows:
+        atlas.paste(im, (x, y))
+
+    manifest["credits"].append(
+        "Text font: Pixel Operator by Jayvee Enaguas (HarvettFox96), CC0 1.0 - "
+        "public domain, no attribution required")
 
     os.makedirs(OUT, exist_ok=True)
     atlas.save(os.path.join(OUT, "atlas.png"))

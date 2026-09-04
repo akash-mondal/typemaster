@@ -388,7 +388,8 @@ function drawFight(now, lethalToNinja){
 
 function tick(now){
   requestAnimationFrame(tick);
-  if (!M || !IMG) return;
+  // a background tab has no business burning a 144Hz render loop
+  if (document.hidden || !M || !IMG) return;
   const dt = last ? now - last : 0; last = now;
 
   if (clip === '__scene'){ drawScene(now); return; }
@@ -472,6 +473,7 @@ for (const id of ['zoom', 'speed']){
 
 // poll for a rebuild and reload without touching the page
 setInterval(async () => {
+  if (document.hidden) return;
   try {
     const r = await fetch('../../assets/flow/manifest.json?t=' + Date.now(),
                           { method: 'HEAD' });
