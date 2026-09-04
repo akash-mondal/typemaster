@@ -50,6 +50,11 @@ export const SHOT = {
 
 // ── the scene itself ─────────────────────────────────────────────────────────
 export const SCENE = {
+  // Frames per second the whole app draws at. The machine is static and the
+  // shader does not benefit from 144Hz; capping is what keeps the fans quiet.
+  // Set to 0 to uncap, or raise it if a game genuinely needs the headroom.
+  fps: 30,
+  pixelRatio: 2,     // lower to 1.5 for a further, slightly softer, saving
   picker: false,      // the row of board buttons. Off: a menu drives this now.
   floor: true,        // the ground plane under the keyboard
   // A floor that shows NOTHING but the shadow the board and set drop on it.

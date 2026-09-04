@@ -58,7 +58,10 @@ const CFG = {
 // ══════════════════════════════════════════════════════════ renderer
 const stage = document.getElementById('stage');
 const renderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
-renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+// Resolution multiplier. Left at 2 so nothing looks different by default, but
+// exposed: on a Retina panel this is 4x the fragments, and the tube shader
+// hides a drop to 1.5 well if more headroom is ever needed.
+renderer.setPixelRatio(Math.min(devicePixelRatio, SCENE.pixelRatio ?? 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -1537,6 +1540,18 @@ window.__DBG = {scene, camera, renderer, controls, THREE, buildTheme, press, rel
   get keys(){return keys}, get byCode(){return byCode}, get theme(){return activeTheme},
   audio:()=>({state:AC&&AC.state, ready, pack:BUF.__name, decoded:Object.keys(BUF).length-1})};
 let last=performance.now(), frames=0, t0=performance.now();
+
+// Frame cap. The scene is a static machine with a shader on it, but every drawn
+// frame costs a full 3D pass AND a canvas-to-GPU upload of the phosphor texture.
+// On a 144Hz display that is roughly five times the work for no visible gain, and
+// it is what spins the fans. 30 is plenty for this; the page can override with
+// window.TYPEMAXX.fps, and 0 means uncapped.
+let lastDraw = 0;
+function frameBudget(){
+  const f = SCENE.fps;
+  if(f === 0) return 0;                    // explicit opt-out
+  return 1000 / (typeof f === 'number' && f > 0 ? f : 30);
+}
 // three.js re-requests the frame AFTER the callback, so an uncaught throw here
 // silently kills the loop forever. Never let that happen quietly again.
 let loopDead = false;
@@ -1745,6 +1760,14 @@ if(SCENE.background)
 
 renderer.setAnimationLoop(now=>{
  try {
+  // Skip whole frames rather than doing less work in each one. Everything below
+  // — input rotation included — must stay on the drawn side of this gate:
+  // rotating the input buffer on a skipped frame would discard keystrokes that
+  // nothing had a chance to read.
+  const budget = frameBudget();
+  if(budget && now - lastDraw < budget - 0.5) return;
+  lastDraw = now;
+
   renderer.info.reset();
   INPUT._rotate();          // one rotation per frame, before anything reads
   const dt = Math.min(0.05,(now-last)/1000); last=now;
