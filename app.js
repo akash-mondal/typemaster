@@ -143,6 +143,23 @@ controls.maxPolarAngle = THREE.MathUtils.degToRad(78);
 const lobby = createLobby({ THREE, scene, camera, renderer, controls, ground: () => boardBounds() });
 window.TYPEMAXX_LOBBY = lobby.api;
 
+// Page-made 3D objects belong in THIS scene, seen by THIS camera. A second canvas
+// or renderer layered behind the engine keeps its own still camera, so its objects
+// hang on the screen while the lobby turns to the leaderboard. Build them with
+// window.TYPEMAXX_THREE (the engine's three instance) and hand them over here.
+//   TYPEMAXX_ADD_OBJECT(object3D)     adds it to the scene, returns it
+//   TYPEMAXX_REMOVE_OBJECT(object3D)
+//   TYPEMAXX_BOARD_BOUNDS()           the keyboard's world Box3 (empty until built);
+//                                     the floor is y = 0
+window.TYPEMAXX_ADD_OBJECT = obj => {
+  if(!obj || !obj.isObject3D) throw new Error('TYPEMAXX_ADD_OBJECT: expected a THREE.Object3D made with window.TYPEMAXX_THREE');
+  obj.traverse(o => { o.userData.noFit = true; });   // never drives the camera fit
+  scene.add(obj);
+  return obj;
+};
+window.TYPEMAXX_REMOVE_OBJECT = obj => { if(obj && obj.parent) obj.parent.remove(obj); };
+window.TYPEMAXX_BOARD_BOUNDS = () => boardBounds().clone();
+
 // ══════════════════════════════════════════════════════════ procedural maps
 // A height field turned into a tangent-space normal map by Sobel. Roughness alone
 // gives you dull-vs-shiny; only normals give the surface actual tooth.
