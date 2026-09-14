@@ -27,7 +27,7 @@ const LOGO_ASPECT = 0.62285;
 
 import { createChalkboard } from './chalkboard.js';
 
-const VERSION = '1.30.1';
+const VERSION = '1.30.2';
 const CREAM = 0xF3EEDD, CREAM_SIDE = 0xC9BFA4;
 const easeOutBack = t => 1 + 2.70158 * Math.pow(t - 1, 3) + 1.70158 * Math.pow(t - 1, 2);
 const easeInOut = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
@@ -690,6 +690,7 @@ export function createLobby({ THREE, scene, camera, renderer, controls, ground }
       logoRig.visible = !suspended && (logo.shown || logo.appear > 0.01);
       renderTabs();
     },
+    get suspended() { return suspended; },
     busy() { return !suspended && (board.open || view.name === 'leaderboard' || view.owns); },
   };
 

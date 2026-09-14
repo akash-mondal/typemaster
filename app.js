@@ -151,13 +151,59 @@ window.TYPEMAXX_LOBBY = lobby.api;
 //   TYPEMAXX_REMOVE_OBJECT(object3D)
 //   TYPEMAXX_BOARD_BOUNDS()           the keyboard's world Box3 (empty until built);
 //                                     the floor is y = 0
-window.TYPEMAXX_ADD_OBJECT = obj => {
+//   TYPEMAXX_ADD_OBJECT(object3D, { onClick, onHover })
+//     onClick()      called when the object is clicked (a pointer cursor shows over it)
+//     onHover(bool)  called as the pointer enters and leaves it
+//   Clicks are ignored while a game runs (lobby suspended) or the lobby owns input.
+const pageClickables = new Map();        // object3D -> { onClick, onHover, over }
+window.TYPEMAXX_ADD_OBJECT = (obj, opts) => {
   if(!obj || !obj.isObject3D) throw new Error('TYPEMAXX_ADD_OBJECT: expected a THREE.Object3D made with window.TYPEMAXX_THREE');
   obj.traverse(o => { o.userData.noFit = true; });   // never drives the camera fit
   scene.add(obj);
+  if(opts && (opts.onClick || opts.onHover))
+    pageClickables.set(obj, { onClick: opts.onClick, onHover: opts.onHover, over: false });
   return obj;
 };
-window.TYPEMAXX_REMOVE_OBJECT = obj => { if(obj && obj.parent) obj.parent.remove(obj); };
+window.TYPEMAXX_REMOVE_OBJECT = obj => {
+  if(!obj) return;
+  pageClickables.delete(obj);
+  if(obj.parent) obj.parent.remove(obj);
+};
+{
+  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+  const shown = o => { for(; o; o = o.parent) if(!o.visible) return false; return true; };
+  const live = () => pageClickables.size && !lobby.api.suspended && !lobby.api.busy();
+  // the clickable object under the pointer, unless something nearer covers it
+  const pick = e => {
+    const r = renderer.domElement.getBoundingClientRect();
+    if(e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return null;
+    ndc.set((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    const targets = [...pageClickables.keys()].filter(shown);
+    if(!targets.length) return null;
+    const hit = ray.intersectObjects(targets, true)[0];
+    if(!hit) return null;
+    const blockers = [root, props].filter(Boolean);
+    const near = ray.intersectObjects(blockers, true).find(h => shown(h.object));
+    if(near && near.distance < hit.distance - 1e-3) return null;
+    for(let o = hit.object; o; o = o.parent) if(pageClickables.has(o)) return o;
+    return null;
+  };
+  addEventListener('pointermove', e => {
+    const hitObj = live() ? pick(e) : null;
+    for(const [o, c] of pageClickables){
+      const over = o === hitObj;
+      if(over !== c.over){ c.over = over; try { c.onHover && c.onHover(over); } catch(err){ console.error(err); } }
+    }
+    if(hitObj && pageClickables.get(hitObj).onClick) renderer.domElement.style.cursor = document.documentElement.style.cursor = 'pointer';
+  });
+  addEventListener('click', e => {
+    if(!live()) return;
+    const o = pick(e);
+    const c = o && pageClickables.get(o);
+    if(c && c.onClick){ e.stopImmediatePropagation(); try { c.onClick(); } catch(err){ console.error(err); } }
+  });
+}
 window.TYPEMAXX_BOARD_BOUNDS = () => boardBounds().clone();
 
 // ══════════════════════════════════════════════════════════ procedural maps
