@@ -25,14 +25,14 @@
 const LOGO_OUTLINE = [[-0.49547,0.30933],[-0.4862,0.31112],[0.21116,0.31068],[0.27952,0.30645],[0.31143,0.30132],[0.3251,0.29725],[0.35245,0.28326],[0.37524,0.26649],[0.39347,0.24821],[0.40866,0.22729],[0.42153,0.19994],[0.42604,0.18627],[0.43119,0.16348],[0.43986,0.09055],[0.44197,0.05865],[0.44452,0.04497],[0.46184,0.02945],[0.49375,0.00911],[0.49948,0.00395],[0.5,-0.00061],[0.48919,-0.01124],[0.44817,-0.03859],[0.44293,-0.04619],[0.43955,-0.09177],[0.43049,-0.16469],[0.4212,-0.20116],[0.41626,-0.21407],[0.40406,-0.23762],[0.39419,-0.25129],[0.3798,-0.26526],[0.36613,-0.27566],[0.34334,-0.28909],[0.32055,-0.29859],[0.30231,-0.30359],[0.27497,-0.30811],[0.22939,-0.3107],[0.16102,-0.30924],[-0.03041,-0.31143],[-0.17171,-0.30976],[-0.43607,-0.3092],[-0.49076,-0.30838],[-0.49532,-0.30688],[-0.49862,-0.30143],[-0.49822,-0.29687],[-0.49532,-0.29309],[-0.46341,-0.27812],[-0.38137,-0.25198],[-0.24008,-0.19982],[-0.15348,-0.1715],[-0.04409,-0.13364],[0.06986,-0.0913],[0.10632,-0.07955],[0.11482,-0.07353],[0.10632,-0.07213],[0.07442,-0.07583],[0.01517,-0.07714],[-0.00762,-0.07986],[-0.23552,-0.09044],[-0.44063,-0.10285],[-0.4862,-0.10351],[-0.49532,-0.1024],[-0.49832,-0.09632],[-0.49856,-0.09177],[-0.49851,0.02674],[-0.5,0.09511],[-0.49899,0.09967],[-0.49532,0.10273],[-0.4862,0.10406],[-0.3996,0.09842],[-0.32668,0.09625],[-0.23096,0.08967],[-0.18082,0.08786],[0.03796,0.07543],[0.10177,0.07322],[0.10632,0.07477],[0.10745,0.07688],[0.09265,0.08415],[0.04707,0.10124],[-0.27654,0.21242],[-0.2811,0.21502],[-0.42695,0.26741],[-0.49076,0.29359],[-0.49827,0.30021],[-0.49881,0.30477]];
 const LOGO_ASPECT = 0.62285;
 
-const VERSION = '1.28.3';
+const VERSION = '1.29.0';
 const CREAM = 0xF3EEDD, CREAM_SIDE = 0xC9BFA4;
 const easeOutBack = t => 1 + 2.70158 * Math.pow(t - 1, 3) + 1.70158 * Math.pow(t - 1, 2);
 const easeInOut = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
 const FONT = '"Inter","SF Pro Display",system-ui,-apple-system,"Segoe UI",sans-serif';
 
-export function createLobby({ THREE, scene, camera, renderer, controls }) {
+export function createLobby({ THREE, scene, camera, renderer, controls, ground }) {
   if (!camera.parent) scene.add(camera);        // camera children render only in the graph
 
   const listeners = { login: [], dismiss: [], signout: [], view: [] };
@@ -51,7 +51,10 @@ export function createLobby({ THREE, scene, camera, renderer, controls }) {
     bevelSegments: 4, curveSegments: 8,
   });
   logoGeo.translate(0, 0, -DEPTH / 2);
+  logoGeo.computeBoundingBox();
+  logoGeo.translate(0, -logoGeo.boundingBox.min.y, 0);   // stands on its lowest point
   logoGeo.computeVertexNormals();
+  const LOGO_H = LOGO_ASPECT + 0.02;                        // height per unit of width, bevel included
   const logoFace = new THREE.MeshPhysicalMaterial({
     color: CREAM, roughness: 0.32, metalness: 0.0, clearcoat: 0.7, clearcoatRoughness: 0.25,
     emissive: new THREE.Color(CREAM), emissiveIntensity: 0.06,
@@ -61,21 +64,15 @@ export function createLobby({ THREE, scene, camera, renderer, controls }) {
   });
   const logoMesh = new THREE.Mesh(logoGeo, [logoFace, logoSide]);
   logoMesh.name = 'commons-logo';
+  logoMesh.castShadow = true;
 
-  const logoPivot = new THREE.Group();       // animated: bob, sway, hover scale
+  const logoPivot = new THREE.Group();       // appear and hover scale, from the ground up
   logoPivot.add(logoMesh);
-  const logoRig = new THREE.Group();         // placed in camera space each frame
+  const logoRig = new THREE.Group();         // stands on the floor beside the keyboard
   logoRig.add(logoPivot);
   logoRig.visible = false;
-  camera.add(logoRig);
+  scene.add(logoRig);
 
-  // a soft halo behind the mark, so it reads on both the white room and a night sky
-  const halo = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({
-    map: radialTexture(), transparent: true, depthWrite: false, toneMapped: false, opacity: 0.0,
-  }));
-  halo.position.z = -0.02;
-  halo.visible = false;               // kept for hover glow experiments; the mark reads cleaner bare
-  logoRig.add(halo);
 
   // the LOGIN label, a crisp canvas texture above the mark
   const label = textPlane('LOGIN', { size: 132, weight: 800, spacing: 0.34, colour: '#F3EEDD', shadow: 'rgba(10,12,18,0.55)' });
@@ -93,7 +90,7 @@ export function createLobby({ THREE, scene, camera, renderer, controls }) {
     label: [new THREE.Color(0xFFFFFF), new THREE.Color(0x1E2229)],
   };
   let tone = 0, toneWant = 0, lastSample = -1, lastLum = null;
-  const _px = new Uint8Array(4), _p3 = new THREE.Vector3();
+  const _px = new Uint8Array(4), _p3 = new THREE.Vector3(), _p4 = new THREE.Vector3();
   function applyTone() {
     logoFace.color.copy(TONE.face[0]).lerp(TONE.face[1], tone);
     logoFace.emissive.copy(logoFace.color);
@@ -115,11 +112,12 @@ export function createLobby({ THREE, scene, camera, renderer, controls }) {
   }
   function sampleBackdrop() {
     const gl = renderer.getContext();
-    logoRig.getWorldPosition(_p3).project(camera);
+    // centre of the mark, and its on-screen half width, then points just outside it
+    _p3.set(0, place.w * LOGO_H * 0.5, 0); logoRig.localToWorld(_p3).project(camera);
     const cx = (_p3.x * 0.5 + 0.5) * gl.drawingBufferWidth;
     const cy = (_p3.y * 0.5 + 0.5) * gl.drawingBufferHeight;
-    // the mark's rough on-screen half size, then points just outside it
-    const r = gl.drawingBufferHeight * 0.13;
+    _p4.set(place.w * 0.5, place.w * LOGO_H * 0.5, 0); logoRig.localToWorld(_p4).project(camera);
+    const r = Math.max(6, Math.abs(_p4.x - _p3.x) * 0.5 * gl.drawingBufferWidth);
     const pts = [[-1.3, 0], [1.3, 0], [0, -1.1], [-1, 1.2], [1, 1.2], [-1, -1], [1, -1]];
     let sum = 0, n = 0;
     const prev = renderer.getRenderTarget();
@@ -501,6 +499,41 @@ export function createLobby({ THREE, scene, camera, renderer, controls }) {
   function openBoard() { board.open = true; board.want = 1; board.dirty = true; boardRig.visible = true; }
   function closeBoard() { board.want = 0; }
 
+  // Where the mark stands. Measured from the keyboard's bounds once they exist,
+  // like the monitor: placed once and left alone, so a board sliding in or out
+  // doesn't drag it along. Re-fitted only when the window's shape changes.
+  const place = { ok: false, box: null, aspect: 0, w: 1 };
+  const _q2 = new THREE.Vector3();
+  function placeLogo() {
+    if (place.ok && Math.abs(camera.aspect - place.aspect) < 0.01) return;
+    if (!place.box) {
+      const b = ground && ground();
+      if (!b || b.isEmpty()) return;
+      place.box = b.clone();
+    }
+    const bb = place.box;
+    const bw = bb.max.x - bb.min.x, bd = bb.max.z - bb.min.z;
+    const z = bb.min.z + bd * 0.08;            // back corner, beside the monitor's foot
+    // the keyboard's nearest right corner, on screen: the mark must clear it
+    const corner = _q2.set(bb.max.x, bb.max.y, bb.max.z).project(camera).x;
+    const ndcAt = (x, w, lx, ly) => {
+      _q2.set(x + lx * w, ly * w, z).project(camera);
+      return _q2.x;
+    };
+    let w = bw * 0.16, x = bb.max.x + w * 0.6;
+    for (let i = 0; i < 80; i++) {
+      const left = ndcAt(x, w, -0.5, 0), right = ndcAt(x, w, 0.55, LOGO_H + 0.45);
+      if (left < corner + 0.03) { x += bw * 0.01; continue; }     // still behind the keyboard: step right
+      if (right > 0.95 && w > bw * 0.07) { w *= 0.92; x = bb.max.x + w * 0.6; continue; }   // off frame: smaller
+      break;
+    }
+    place.w = w;
+    logoRig.position.set(x, 0, z);
+    logoRig.rotation.set(0, 0, 0);             // square to the room, like the other props
+    place.aspect = camera.aspect;
+    place.ok = true;
+  }
+
   // ---------------------------------------------------------------- per frame
   let seconds = 0, steps = 0, renders = 0;
   function step(dt) {
@@ -509,30 +542,21 @@ export function createLobby({ THREE, scene, camera, renderer, controls }) {
     const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
     const dist = camera.position.distanceTo(controls.target) || 10;
 
-    // --- logo: camera space, right of centre, in front of the machine
+    // --- logo: a still object standing on the floor to the right of the keyboard
     logo.appear += ((logo.shown && !suspended && view.name === 'home' ? 1 : 0) - logo.appear) * Math.min(1, dt * 6);
     if (logo.appear < 0.01 && (!logo.shown || suspended)) logoRig.visible = false;
     if (logoRig.visible) {
-      // just past the near plane, so no prop can ever stand in front of it
-      const D = camera.near * 1.35;
-      const hh = D * tanV, hw = hh * camera.aspect;
-      const size = Math.min(hh * 0.30, hw * 0.16);
-      logoRig.position.set(hw - size * 0.62 - hw * 0.08, hh * 0.28, -D);
+      placeLogo();
       logo.hover += (logo.want - logo.hover) * Math.min(1, dt * 10);
       const pop = easeOutBack(clamp01(logo.appear));
-      const s = size * pop * (1 + logo.hover * 0.1);
-      logoPivot.scale.setScalar(s);
-      logoPivot.position.y = Math.sin(seconds * 1.6) * hh * 0.025;
-      logoPivot.rotation.y = Math.sin(seconds * 0.9) * 0.26 + logo.hover * Math.sin(seconds * 3) * 0.1;
-      logoPivot.rotation.x = -0.12 + Math.sin(seconds * 1.3) * 0.05;
+      logoPivot.scale.setScalar(place.w * pop * (1 + logo.hover * 0.05));
+      logoRig.visible = place.ok;
       tone += (toneWant - tone) * Math.min(1, dt * 4);
       applyTone();
       logoFace.emissiveIntensity = (0.06 + logo.hover * 0.22) * (1 - tone);
-      halo.scale.set(size * 2.6 * pop, size * 2.0 * pop, 1);
-      halo.position.y = logoPivot.position.y;
-      halo.material.opacity = (0.10 + logo.hover * 0.18) * clamp01(logo.appear);
-      label.mesh.scale.set(size * 0.95 * label.aspect * 0.34 * pop, size * 0.34 * pop, 1);
-      label.mesh.position.set(0, size * 0.62 + logoPivot.position.y, 0.05);
+      const lh = place.w * 0.24 * pop;
+      label.mesh.scale.set(lh * label.aspect, lh, 1);
+      label.mesh.position.set(0, place.w * LOGO_H * pop * (1 + logo.hover * 0.05) + lh * 0.75, 0);
       label.mesh.material.opacity = clamp01(logo.appear) * (0.85 + logo.hover * 0.15);
     }
 

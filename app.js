@@ -140,7 +140,7 @@ controls.maxPolarAngle = THREE.MathUtils.degToRad(78);
 
 // The lobby: login mark, login board, user badge, leaderboard turn. Presentation
 // only - the host page decides when it shows and what login does (see lobby.js).
-const lobby = createLobby({ THREE, scene, camera, renderer, controls });
+const lobby = createLobby({ THREE, scene, camera, renderer, controls, ground: () => boardBounds() });
 window.TYPEMAXX_LOBBY = lobby.api;
 
 // ══════════════════════════════════════════════════════════ procedural maps
