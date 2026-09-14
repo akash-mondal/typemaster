@@ -25,7 +25,7 @@
 const LOGO_OUTLINE = [[-0.49547,0.30933],[-0.4862,0.31112],[0.21116,0.31068],[0.27952,0.30645],[0.31143,0.30132],[0.3251,0.29725],[0.35245,0.28326],[0.37524,0.26649],[0.39347,0.24821],[0.40866,0.22729],[0.42153,0.19994],[0.42604,0.18627],[0.43119,0.16348],[0.43986,0.09055],[0.44197,0.05865],[0.44452,0.04497],[0.46184,0.02945],[0.49375,0.00911],[0.49948,0.00395],[0.5,-0.00061],[0.48919,-0.01124],[0.44817,-0.03859],[0.44293,-0.04619],[0.43955,-0.09177],[0.43049,-0.16469],[0.4212,-0.20116],[0.41626,-0.21407],[0.40406,-0.23762],[0.39419,-0.25129],[0.3798,-0.26526],[0.36613,-0.27566],[0.34334,-0.28909],[0.32055,-0.29859],[0.30231,-0.30359],[0.27497,-0.30811],[0.22939,-0.3107],[0.16102,-0.30924],[-0.03041,-0.31143],[-0.17171,-0.30976],[-0.43607,-0.3092],[-0.49076,-0.30838],[-0.49532,-0.30688],[-0.49862,-0.30143],[-0.49822,-0.29687],[-0.49532,-0.29309],[-0.46341,-0.27812],[-0.38137,-0.25198],[-0.24008,-0.19982],[-0.15348,-0.1715],[-0.04409,-0.13364],[0.06986,-0.0913],[0.10632,-0.07955],[0.11482,-0.07353],[0.10632,-0.07213],[0.07442,-0.07583],[0.01517,-0.07714],[-0.00762,-0.07986],[-0.23552,-0.09044],[-0.44063,-0.10285],[-0.4862,-0.10351],[-0.49532,-0.1024],[-0.49832,-0.09632],[-0.49856,-0.09177],[-0.49851,0.02674],[-0.5,0.09511],[-0.49899,0.09967],[-0.49532,0.10273],[-0.4862,0.10406],[-0.3996,0.09842],[-0.32668,0.09625],[-0.23096,0.08967],[-0.18082,0.08786],[0.03796,0.07543],[0.10177,0.07322],[0.10632,0.07477],[0.10745,0.07688],[0.09265,0.08415],[0.04707,0.10124],[-0.27654,0.21242],[-0.2811,0.21502],[-0.42695,0.26741],[-0.49076,0.29359],[-0.49827,0.30021],[-0.49881,0.30477]];
 const LOGO_ASPECT = 0.62285;
 
-const VERSION = '1.28.2';
+const VERSION = '1.28.3';
 const CREAM = 0xF3EEDD, CREAM_SIDE = 0xC9BFA4;
 const easeOutBack = t => 1 + 2.70158 * Math.pow(t - 1, 3) + 1.70158 * Math.pow(t - 1, 2);
 const easeInOut = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
@@ -577,7 +577,15 @@ export function createLobby({ THREE, scene, camera, renderer, controls }) {
     version: VERSION,
     debug(on) { setDebug(on === undefined ? true : !!on); return api.state(); },
     state: () => dbgState(),
-    showLogin(on) { logo.shown = !!on; if (on && !suspended) logoRig.visible = true; if (!on) closeBoard(); },
+    // Idempotent: hosts call this from their per-frame screen code. Re-applying the
+    // same value must not touch the board, or a board that just opened is shut again.
+    showLogin(on) {
+      on = !!on;
+      if (on === logo.shown) return;
+      logo.shown = on;
+      if (on && !suspended) logoRig.visible = true;
+      if (!on) closeBoard();
+    },
     setBoard(copy) { Object.assign(board.copy, copy || {}); board.dirty = true; },
     openBoard, closeBoard,
     setUser(u) {
@@ -603,6 +611,7 @@ export function createLobby({ THREE, scene, camera, renderer, controls }) {
     on(ev, fn) { if (listeners[ev] && typeof fn === 'function') listeners[ev].push(fn); return api; },
     // while a game is running: nothing from the lobby is visible or clickable
     suspend(on) {
+      if (!!on === suspended) return;
       suspended = !!on;
       root.style.display = suspended ? 'none' : '';
       if (suspended) { closeBoard(); if (view.name !== 'home') setView('home'); }
@@ -631,9 +640,14 @@ export function createLobby({ THREE, scene, camera, renderer, controls }) {
     api[name] = function (...args) {
       const from = (new Error().stack || '').split('\n').slice(2, 4).map(l => l.trim().replace(/^at /, '')).join(' <- ');
       const arg = args.length ? JSON.stringify(args[0]) : '';
-      dbg.log.push({ t: +seconds.toFixed(2), call: `${name}(${arg && arg.length > 60 ? arg.slice(0, 60) + '…' : arg})`, from });
-      if (dbg.log.length > 40) dbg.log.shift();
-      if (dbg.on) console.log('[lobby]', name, ...args, '\n  from', from);
+      const call = `${name}(${arg && arg.length > 60 ? arg.slice(0, 60) + '…' : arg})`;
+      const prev = dbg.log[dbg.log.length - 1];
+      if (prev && prev.call === call && prev.from === from) { prev.times = (prev.times || 1) + 1; prev.t = +seconds.toFixed(2); }
+      else {
+        dbg.log.push({ t: +seconds.toFixed(2), call, from });
+        if (dbg.log.length > 40) dbg.log.shift();
+        if (dbg.on) console.log('[lobby]', name, ...args, '\n  from', from);
+      }
       return fn.apply(this, args);
     };
   }
@@ -677,7 +691,7 @@ export function createLobby({ THREE, scene, camera, renderer, controls }) {
     if (seconds - dbg.last < 0.25) return;
     dbg.last = seconds;
     const st = dbgState();
-    const calls = st.calls.map(c => `  ${c.t}s ${c.call}\n      ${c.from}`).join('\n');
+    const calls = st.calls.map(c => `  ${c.t}s ${c.call}${c.times ? '  x' + c.times : ''}\n      ${c.from}`).join('\n');
     delete st.calls;
     dbg.panel.textContent = 'TYPEMAXX LOBBY DEBUG  (TYPEMAXX_LOBBY.debug(false) to close)\n' +
       Object.entries(st).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join('\n') +
