@@ -25,6 +25,7 @@
 const LOGO_OUTLINE = [[-0.49547,0.30933],[-0.4862,0.31112],[0.21116,0.31068],[0.27952,0.30645],[0.31143,0.30132],[0.3251,0.29725],[0.35245,0.28326],[0.37524,0.26649],[0.39347,0.24821],[0.40866,0.22729],[0.42153,0.19994],[0.42604,0.18627],[0.43119,0.16348],[0.43986,0.09055],[0.44197,0.05865],[0.44452,0.04497],[0.46184,0.02945],[0.49375,0.00911],[0.49948,0.00395],[0.5,-0.00061],[0.48919,-0.01124],[0.44817,-0.03859],[0.44293,-0.04619],[0.43955,-0.09177],[0.43049,-0.16469],[0.4212,-0.20116],[0.41626,-0.21407],[0.40406,-0.23762],[0.39419,-0.25129],[0.3798,-0.26526],[0.36613,-0.27566],[0.34334,-0.28909],[0.32055,-0.29859],[0.30231,-0.30359],[0.27497,-0.30811],[0.22939,-0.3107],[0.16102,-0.30924],[-0.03041,-0.31143],[-0.17171,-0.30976],[-0.43607,-0.3092],[-0.49076,-0.30838],[-0.49532,-0.30688],[-0.49862,-0.30143],[-0.49822,-0.29687],[-0.49532,-0.29309],[-0.46341,-0.27812],[-0.38137,-0.25198],[-0.24008,-0.19982],[-0.15348,-0.1715],[-0.04409,-0.13364],[0.06986,-0.0913],[0.10632,-0.07955],[0.11482,-0.07353],[0.10632,-0.07213],[0.07442,-0.07583],[0.01517,-0.07714],[-0.00762,-0.07986],[-0.23552,-0.09044],[-0.44063,-0.10285],[-0.4862,-0.10351],[-0.49532,-0.1024],[-0.49832,-0.09632],[-0.49856,-0.09177],[-0.49851,0.02674],[-0.5,0.09511],[-0.49899,0.09967],[-0.49532,0.10273],[-0.4862,0.10406],[-0.3996,0.09842],[-0.32668,0.09625],[-0.23096,0.08967],[-0.18082,0.08786],[0.03796,0.07543],[0.10177,0.07322],[0.10632,0.07477],[0.10745,0.07688],[0.09265,0.08415],[0.04707,0.10124],[-0.27654,0.21242],[-0.2811,0.21502],[-0.42695,0.26741],[-0.49076,0.29359],[-0.49827,0.30021],[-0.49881,0.30477]];
 const LOGO_ASPECT = 0.62285;
 
+const VERSION = '1.28.2';
 const CREAM = 0xF3EEDD, CREAM_SIDE = 0xC9BFA4;
 const easeOutBack = t => 1 + 2.70158 * Math.pow(t - 1, 3) + 1.70158 * Math.pow(t - 1, 2);
 const easeInOut = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
@@ -91,7 +92,7 @@ export function createLobby({ THREE, scene, camera, renderer, controls }) {
     side: [new THREE.Color(CREAM_SIDE), new THREE.Color(0x3A3F4A)],
     label: [new THREE.Color(0xFFFFFF), new THREE.Color(0x1E2229)],
   };
-  let tone = 0, toneWant = 0, lastSample = -1;
+  let tone = 0, toneWant = 0, lastSample = -1, lastLum = null;
   const _px = new Uint8Array(4), _p3 = new THREE.Vector3();
   function applyTone() {
     logoFace.color.copy(TONE.face[0]).lerp(TONE.face[1], tone);
@@ -136,6 +137,7 @@ export function createLobby({ THREE, scene, camera, renderer, controls }) {
     if (n) {
       const lum = sum / n;
       // hysteresis, so a mid-grey wall doesn't flicker between the two
+      lastLum = lum;
       if (lum > 0.58) toneWant = 1; else if (lum < 0.42) toneWant = 0;
     }
   }
@@ -500,9 +502,10 @@ export function createLobby({ THREE, scene, camera, renderer, controls }) {
   function closeBoard() { board.want = 0; }
 
   // ---------------------------------------------------------------- per frame
-  let seconds = 0;
+  let seconds = 0, steps = 0, renders = 0;
   function step(dt) {
-    seconds += dt;
+    seconds += dt; steps++;
+    if (dbg.on) dbgFrame();
     const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
     const dist = camera.position.distanceTo(controls.target) || 10;
 
@@ -571,6 +574,9 @@ export function createLobby({ THREE, scene, camera, renderer, controls }) {
 
   // ---------------------------------------------------------------- api
   const api = {
+    version: VERSION,
+    debug(on) { setDebug(on === undefined ? true : !!on); return api.state(); },
+    state: () => dbgState(),
     showLogin(on) { logo.shown = !!on; if (on && !suspended) logoRig.visible = true; if (!on) closeBoard(); },
     setBoard(copy) { Object.assign(board.copy, copy || {}); board.dirty = true; },
     openBoard, closeBoard,
@@ -608,11 +614,76 @@ export function createLobby({ THREE, scene, camera, renderer, controls }) {
 
   // call straight after the frame is rendered, while its pixels are still readable
   function afterRender() {
+    renders++;
     if (!logoRig.visible || suspended) return;
     if (seconds - lastSample < 0.5 && lastSample >= 0) return;
     lastSample = seconds;
     try { sampleBackdrop(); } catch (e) { /* a lost context just keeps the last tone */ }
   }
+
+  // ---------------------------------------------------------------- debug
+  // TYPEMAXX_LOBBY.debug() in the console, or localStorage['typemaxx.lobby.debug']='1'
+  // to have it on from the first frame. Shows a live panel, paints the mark magenta
+  // over everything, and logs every call the host makes with where it came from.
+  const dbg = { on: false, panel: null, log: [], mat: null, saved: null, last: 0 };
+  for (const name of ['showLogin', 'setUser', 'suspend', 'view', 'openBoard', 'closeBoard']) {
+    const fn = api[name];
+    api[name] = function (...args) {
+      const from = (new Error().stack || '').split('\n').slice(2, 4).map(l => l.trim().replace(/^at /, '')).join(' <- ');
+      const arg = args.length ? JSON.stringify(args[0]) : '';
+      dbg.log.push({ t: +seconds.toFixed(2), call: `${name}(${arg && arg.length > 60 ? arg.slice(0, 60) + '…' : arg})`, from });
+      if (dbg.log.length > 40) dbg.log.shift();
+      if (dbg.on) console.log('[lobby]', name, ...args, '\n  from', from);
+      return fn.apply(this, args);
+    };
+  }
+  function dbgState() {
+    const p = new THREE.Vector3();
+    logoRig.getWorldPosition(p).project(camera);
+    const r = renderer.domElement.getBoundingClientRect();
+    return {
+      version: VERSION,
+      loopRunning: { steps, renders, seconds: +seconds.toFixed(1) },
+      logo: {
+        showLoginRequested: logo.shown, suspended, rigVisible: logoRig.visible,
+        appear: +logo.appear.toFixed(2), tone: +tone.toFixed(2), backdropLum: lastLum === null ? null : +lastLum.toFixed(2),
+        screenPx: [Math.round(r.left + (p.x * 0.5 + 0.5) * r.width), Math.round(r.top + (-p.y * 0.5 + 0.5) * r.height)],
+        onScreen: Math.abs(p.x) <= 1 && Math.abs(p.y) <= 1 && p.z < 1,
+        inScene: (() => { let o = logoRig; while (o.parent) o = o.parent; return o === scene; })(),
+      },
+      camera: { near: camera.near, far: camera.far, fov: camera.fov, aspect: +camera.aspect.toFixed(3), layers: camera.layers.mask },
+      canvas: [Math.round(r.width), Math.round(r.height)],
+      user: user ? (user.handle || user.name) : null,
+      view: view.name, boardOpen: board.open, busy: api.busy(),
+      calls: dbg.log.slice(-12),
+    };
+  }
+  function setDebug(on) {
+    dbg.on = on;
+    try { on ? localStorage.setItem('typemaxx.lobby.debug', '1') : localStorage.removeItem('typemaxx.lobby.debug'); } catch (e) {}
+    if (on && !dbg.panel) {
+      dbg.panel = document.createElement('pre');
+      dbg.panel.style.cssText = 'position:fixed;left:10px;bottom:10px;z-index:2147483647;margin:0;max-width:46vw;max-height:60vh;overflow:auto;' +
+        'padding:10px 12px;background:rgba(0,0,0,.85);color:#9BF7B7;font:11px/1.35 ui-monospace,Menlo,monospace;border:1px solid #f0f;border-radius:8px;pointer-events:none;white-space:pre-wrap';
+      document.body.appendChild(dbg.panel);
+      dbg.mat = new THREE.MeshBasicMaterial({ color: 0xff00ff, depthTest: false, depthWrite: false, toneMapped: false });
+    }
+    if (dbg.panel) dbg.panel.style.display = on ? '' : 'none';
+    if (on) { dbg.saved = logoMesh.material; logoMesh.material = dbg.mat; logoMesh.renderOrder = 999; }
+    else if (dbg.saved) { logoMesh.material = dbg.saved; logoMesh.renderOrder = 0; }
+    console.log('[lobby] debug', on ? 'on' : 'off', api.state());
+  }
+  function dbgFrame() {
+    if (seconds - dbg.last < 0.25) return;
+    dbg.last = seconds;
+    const st = dbgState();
+    const calls = st.calls.map(c => `  ${c.t}s ${c.call}\n      ${c.from}`).join('\n');
+    delete st.calls;
+    dbg.panel.textContent = 'TYPEMAXX LOBBY DEBUG  (TYPEMAXX_LOBBY.debug(false) to close)\n' +
+      Object.entries(st).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join('\n') +
+      '\n\nlast calls from the host page:\n' + (calls || '  (none - the page never called the lobby)');
+  }
+  try { if (localStorage.getItem('typemaxx.lobby.debug') === '1') setTimeout(() => setDebug(true), 0); } catch (e) {}
 
   return { api, step, afterRender, ownsCamera: () => view.owns };
 
