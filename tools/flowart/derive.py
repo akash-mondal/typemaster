@@ -68,13 +68,22 @@ C = {
     "EO2": (0x52, 0x14, 0x18, 255),
     "HT": (0xC9, 0xA9, 0x6A, 255),  # straw hat
     "HT2": (0x8A, 0x6F, 0x3E, 255),
-    # the archer: olive and ash, so he is neither the blue ninja nor the ochre ronin
-    "AD": (0x18, 0x1E, 0x16, 255),
-    "AM": (0x2C, 0x36, 0x26, 255),
-    "AL": (0x48, 0x56, 0x3A, 255),
-    "AO": (0x6A, 0x56, 0x2A, 255),
-    "AO2": (0x46, 0x38, 0x1C, 255),
-    "AW": (0x9A, 0x8C, 0x6A, 255),
+    # the archer: black-clad like the kage, but hooded with a blood-red sash
+    "AD": (0x07, 0x07, 0x0B, 255),
+    "AM": (0x13, 0x13, 0x1A, 255),
+    "AL": (0x2A, 0x2C, 0x38, 255),
+    "AO": (0x6E, 0x16, 0x1C, 255),
+    "AO2": (0x46, 0x0E, 0x12, 255),
+    "AW": (0x34, 0x34, 0x3E, 255),
+    # the kage: an enemy shinobi, all black. A cold rim keeps the silhouette
+    # readable against night skies; the only colour is the eye.
+    "KD": (0x05, 0x05, 0x08, 255),
+    "KM": (0x10, 0x10, 0x16, 255),
+    "KL": (0x2C, 0x30, 0x40, 255),
+    "KB": (0x22, 0x22, 0x2C, 255),
+    "KB2": (0x16, 0x16, 0x1E, 255),
+    "KW": (0x1C, 0x1C, 0x24, 255),
+    "EYE": (0xE8, 0x3A, 0x36, 255),
     "BOW": (0x7A, 0x52, 0x2C, 255),
     "STR": (0xC8, 0xC0, 0xA8, 255),
     # blood, dark to bright. Kept to four steps so a spray still reads as one
@@ -94,7 +103,10 @@ KINDS = {
               "accent": "HT", "accent2": "HT2", "scarf": False, "hat": True},
     "archer": {"D": "AD", "M": "AM", "L": "AL", "band": "AO", "band2": "AO2",
                "accent": "AW", "accent2": "AO2", "scarf": False, "hat": False,
-               "hood": True},
+               "hood": True, "eye": "EYE"},
+    "kage": {"D": "KD", "M": "KM", "L": "KL", "band": "KB", "band2": "KB2",
+             "accent": "KW", "accent2": "KB2", "scarf": False, "hat": False,
+             "eye": "EYE"},
 }
 
 # A conical kasa. Hand-authored, because the silhouette is the whole point:
@@ -217,7 +229,7 @@ def _torso_span(g, y, cx):
     return (a, b)
 
 
-def costume(g, scarf_phase, kind="ninja", blade=None, wet=False, bow=None, upright=False):
+def costume(g, scarf_phase, kind="ninja", blade=None, wet=False, bow=None, upright=False, star=False):
     """Paint a character over correct anatomy. Everything is placed by body
     proportion, so it follows the pose instead of being pinned to a cell."""
     K = KINDS[kind]
@@ -264,7 +276,7 @@ def costume(g, scarf_phase, kind="ninja", blade=None, wet=False, bow=None, uprig
         for x in range(mid, b + 1):
             g.put(x, y, C[K["accent"]] if not K["hat"] else C["F"])
         if y == eye_y + 1:
-            g.put(b - 1, y, C["K"])
+            g.put(b - 1, y, C[K.get("eye", "K")])
 
     # --- obi / sash, torso only
     cx = sum(_row_span(g, band_y) or (g.w // 2, g.w // 2)) / 2
@@ -364,7 +376,7 @@ def costume(g, scarf_phase, kind="ninja", blade=None, wet=False, bow=None, uprig
     # --- hood for the archer: a darker cap swept back over the head
     if K.get("hood"):
         for y in range(top, band_y + 2):
-            sp = _row_span(g, y)
+            sp = _torso_span(g, y, hcx2) if upright else _row_span(g, y)
             if sp:
                 for x in range(sp[0] - (1 if y > top + 1 else 0), sp[1] + 1):
                     g.put(x, y, C[K["D"]])
@@ -391,12 +403,24 @@ def costume(g, scarf_phase, kind="ninja", blade=None, wet=False, bow=None, uprig
                 for i in range(0, 12):
                     g.put(hx - 8 + i, hy, C["AW"] if i < 10 else C["S"])
 
+    # --- a shuriken held at the leading hand, for the throw wind-up
+    if star:
+        hand = None
+        for y in range(top + int(H * 0.10), top + int(H * 0.56)):
+            sp = _row_span(g, y)
+            if sp and (hand is None or sp[1] > hand[0]):
+                hand = (sp[1], y)
+        if hand:
+            hx, hy = hand
+            for dx, dy in ((1, 0), (2, -1), (2, 1), (3, 0), (2, 0)):
+                g.put(hx + dx, hy + dy, C["S"])
+
     g.outline(C["K"])
     return g
 
 
 def frame(sheet, idx, scarf_phase, kind="ninja", flip=False, blade=None,
-          wet=False, bow=None, upright=False):
+          wet=False, bow=None, upright=False, star=False):
     small, _ = _shrink(_cell(sheet, idx))
     if small is None:
         return None
@@ -409,7 +433,7 @@ def frame(sheet, idx, scarf_phase, kind="ninja", flip=False, blade=None,
             t = _tone(small.getpixel((x, y)))
             if t:
                 g.put(x + ox, y + oy, C[K[t]])
-    costume(g, scarf_phase, kind, blade, wet, bow, upright)
+    costume(g, scarf_phase, kind, blade, wet, bow, upright, star)
     if flip:
         f = Grid(g.w, g.h)
         for y in range(g.h):
@@ -572,6 +596,22 @@ def clips():
     out["archer_draw"] = [frame(sheet, i, 0, "archer", flip=True, bow="draw") for i in SHOOT[:3]]
     out["archer_loose"] = [frame(sheet, SHOOT[3], 0, "archer", flip=True, bow="rest")]
     out["archer_die"] = [frame(sheet, i, 0, "archer", flip=True) for i in DIE]
+
+    # ---- the kage, facing left: idle, a three-frame throw, and the fall
+    THROW = [28, 24, 25]
+    out["kage_idle"] = [frame(sheet, i, 0, "kage", flip=True) for i in STANCE]
+    out["kage_throw"] = [frame(sheet, i, 0, "kage", flip=True, star=(n < 2), upright=(n == 2))
+                         for n, i in enumerate(THROW)]
+    out["kage_strike"] = [frame(sheet, i, 0, "kage", flip=True, blade=a)
+                          for i, a in zip(SWING[1:3], (40, -10))]
+    out["kage_die"] = [frame(sheet, i, 0, "kage", flip=True) for i in DIE]
+    out["archer_strike"] = [frame(sheet, i, 0, "archer", flip=True, blade=a, upright=True)
+                            for i, a in zip(SWING[1:3], (40, -10))]
+
+    # ---- the ninja's kaginawa: throw the hook, hang and swing, catch a star
+    out["ninja_throw"] = [frame(sheet, i, n * 0.8, upright=(n == 2)) for n, i in enumerate(THROW)]
+    out["ninja_swing"] = [frame(sheet, i, n * 1.6, upright=True) for n, i in enumerate(CHEER)]
+    out["ninja_catch"] = [frame(sheet, i, n * 0.8, star=True, upright=(n == 1)) for n, i in enumerate([24, 25])]
 
     out["slash"] = slash_frames()
     out["blood_spray"] = blood_spray()

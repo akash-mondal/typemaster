@@ -137,6 +137,7 @@ import font as FT
 import kata as KT
 import hud as HD
 import stage as ST
+import worlds as WD
 from PIL import ImageFont as _IF
 
 NW, NH = DV.OUT_W, DV.OUT_H
@@ -159,6 +160,8 @@ def build():
         ms[k] = 70
     for k, v in HD.clips().items():
         dv[k] = v
+    ms.update({"kage_idle": 460, "kage_throw": 110, "kage_strike": 70, "kage_die": 110,
+               "archer_strike": 70, "ninja_throw": 80, "ninja_swing": 160, "ninja_catch": 90})
     ms.update({"shuriken": 60, "spark": 50, "dust": 70, "lantern_pick": 180,
                "ninja_block": 120, "ninja_stumble": 110, "ninja_slide": 120,
                "ninja_victory": 300, "archer_idle": 460, "archer_draw": 150,
@@ -258,6 +261,7 @@ def build():
     manifest["tiles"] = {}
     tiles = ST.tiles()
     tiles.update(HD.tiles())
+    tiles.update(WD.tiles())
     order = sorted(tiles.keys(), key=lambda k: (-tiles[k].h, k))
     tx, ty, shelf_h = 0, fy, 0
     tile_pastes = []
