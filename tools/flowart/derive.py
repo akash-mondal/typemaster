@@ -32,6 +32,11 @@ RUN = list(range(4, 12))         # 8 frames
 SWING = list(range(12, 16))      # 4 frames - the sword strike
 DIE = list(range(18, 24))        # 6 frames - staggered, then down
 JUMP = [42, 43, 44, 45, 46, 47]  # crouch, launch, rise, apex, fall, reach
+GUARD = [16, 17]                 # braced, blade up - the block
+HIT = [18, 19]                   # staggered - the stumble
+CROUCH = [40, 41]                # low - the slide under a shuriken
+CHEER = [26, 27]                 # arms raised - victory
+SHOOT = [28, 29, 30, 31]         # nock, draw, full draw, loose
 STAND = [64]
 STANCE = list(range(0, 4))
 
@@ -63,6 +68,15 @@ C = {
     "EO2": (0x52, 0x14, 0x18, 255),
     "HT": (0xC9, 0xA9, 0x6A, 255),  # straw hat
     "HT2": (0x8A, 0x6F, 0x3E, 255),
+    # the archer: olive and ash, so he is neither the blue ninja nor the ochre ronin
+    "AD": (0x18, 0x1E, 0x16, 255),
+    "AM": (0x2C, 0x36, 0x26, 255),
+    "AL": (0x48, 0x56, 0x3A, 255),
+    "AO": (0x6A, 0x56, 0x2A, 255),
+    "AO2": (0x46, 0x38, 0x1C, 255),
+    "AW": (0x9A, 0x8C, 0x6A, 255),
+    "BOW": (0x7A, 0x52, 0x2C, 255),
+    "STR": (0xC8, 0xC0, 0xA8, 255),
     # blood, dark to bright. Kept to four steps so a spray still reads as one
     # colour family at 320x240 rather than turning to confetti.
     "BL0": (0x3A, 0x07, 0x0A, 255),
@@ -78,6 +92,9 @@ KINDS = {
               "accent": "W", "accent2": "G", "scarf": True, "hat": False},
     "ronin": {"D": "ED", "M": "EM", "L": "EL", "band": "EO", "band2": "EO2",
               "accent": "HT", "accent2": "HT2", "scarf": False, "hat": True},
+    "archer": {"D": "AD", "M": "AM", "L": "AL", "band": "AO", "band2": "AO2",
+               "accent": "AW", "accent2": "AO2", "scarf": False, "hat": False,
+               "hood": True},
 }
 
 # A conical kasa. Hand-authored, because the silhouette is the whole point:
@@ -200,11 +217,16 @@ def _torso_span(g, y, cx):
     return (a, b)
 
 
-def costume(g, scarf_phase, kind="ninja", blade=None, wet=False):
+def costume(g, scarf_phase, kind="ninja", blade=None, wet=False, bow=None, upright=False):
     """Paint a character over correct anatomy. Everything is placed by body
     proportion, so it follows the pose instead of being pinned to a cell."""
     K = KINDS[kind]
     top, bot = _body_rows(g)
+    if upright:
+        # arms raised above the head: the first solid row is a hand, not the
+        # crown. An upright figure's crown is a fixed standing height above
+        # its feet, because every pose shares one scale.
+        top = max(top, bot - (TARGET_H - 1))
     H = bot - top + 1
 
     head_bot = top + int(H * 0.20)
@@ -222,15 +244,19 @@ def costume(g, scarf_phase, kind="ninja", blade=None, wet=False):
 
     # --- headband, or the hat brim line for the ronin
     if not K["hat"]:
+        hs = _row_span(g, head_bot)
+        hcx = (hs[0] + hs[1]) / 2.0 if hs else g.w / 2.0
         for y in (band_y, band_y + 1):
-            sp = _row_span(g, y)
+            sp = _torso_span(g, y, hcx) if upright else _row_span(g, y)
             if sp:
                 for x in range(sp[0], sp[1] + 1):
                     g.put(x, y, C[K["band"] if y == band_y else K["band2"]])
 
     # --- face band and eye, on the leading half of the head
+    hs2 = _row_span(g, head_bot)
+    hcx2 = (hs2[0] + hs2[1]) / 2.0 if hs2 else g.w / 2.0
     for y in (eye_y, eye_y + 1):
-        sp = _row_span(g, y)
+        sp = _torso_span(g, y, hcx2) if upright else _row_span(g, y)
         if not sp:
             continue
         a, b = sp
@@ -335,12 +361,42 @@ def costume(g, scarf_phase, kind="ninja", blade=None, wet=False):
                     y = hy - math.sin(ang) * i
                     g.put(x, y, C["BL2"] if i > 9 else C["BL1"])
 
+    # --- hood for the archer: a darker cap swept back over the head
+    if K.get("hood"):
+        for y in range(top, band_y + 2):
+            sp = _row_span(g, y)
+            if sp:
+                for x in range(sp[0] - (1 if y > top + 1 else 0), sp[1] + 1):
+                    g.put(x, y, C[K["D"]])
+
+    # --- the bow, held in the leading hand. 'rest' is slack, 'draw' pulls the
+    # string back to the other hand, which is what telegraphs the shot.
+    if bow is not None:
+        hand = None
+        for y in range(top + int(H * 0.24), top + int(H * 0.50)):
+            sp = _row_span(g, y)
+            if sp and (hand is None or sp[1] > hand[0]):
+                hand = (sp[1], y)
+        if hand:
+            hx, hy = hand
+            span = 9
+            for dy in range(-span, span + 1):
+                bulge = int(round(3.2 * (1 - (dy / float(span)) ** 2)))
+                g.put(hx + 1 + bulge, hy + dy, C["BOW"])
+            pull = 9 if bow == "draw" else 1
+            for dy in range(-span, span + 1):
+                u = 1 - abs(dy) / float(span)
+                g.put(hx + 1 - int(round(pull * u)), hy + dy, C["STR"])
+            if bow == "draw":
+                for i in range(0, 12):
+                    g.put(hx - 8 + i, hy, C["AW"] if i < 10 else C["S"])
+
     g.outline(C["K"])
     return g
 
 
 def frame(sheet, idx, scarf_phase, kind="ninja", flip=False, blade=None,
-          wet=False):
+          wet=False, bow=None, upright=False):
     small, _ = _shrink(_cell(sheet, idx))
     if small is None:
         return None
@@ -353,7 +409,7 @@ def frame(sheet, idx, scarf_phase, kind="ninja", flip=False, blade=None,
             t = _tone(small.getpixel((x, y)))
             if t:
                 g.put(x + ox, y + oy, C[K[t]])
-    costume(g, scarf_phase, kind, blade, wet)
+    costume(g, scarf_phase, kind, blade, wet, bow, upright)
     if flip:
         f = Grid(g.w, g.h)
         for y in range(g.h):
@@ -504,6 +560,18 @@ def clips():
                            for i, a in zip(SWING[2:], (-6, -40))]
     out["enemy_die"] = [frame(sheet, i, 0, "ronin", flip=True)
                         for i in DIE]
+
+    # ---- new ninja moves
+    out["ninja_block"] = [frame(sheet, i, 1.0 + n, blade=84) for n, i in enumerate(GUARD)]
+    out["ninja_stumble"] = [frame(sheet, i, 2.0 + n * 0.8) for n, i in enumerate(HIT)]
+    out["ninja_slide"] = [frame(sheet, i, 0.5 + n * 1.1) for n, i in enumerate(CROUCH)]
+    out["ninja_victory"] = [frame(sheet, i, n * 1.4, upright=True) for n, i in enumerate(CHEER)]
+
+    # ---- the archer, facing left toward the ninja
+    out["archer_idle"] = [frame(sheet, i, 0, "archer", flip=True, bow="rest") for i in STANCE]
+    out["archer_draw"] = [frame(sheet, i, 0, "archer", flip=True, bow="draw") for i in SHOOT[:3]]
+    out["archer_loose"] = [frame(sheet, SHOOT[3], 0, "archer", flip=True, bow="rest")]
+    out["archer_die"] = [frame(sheet, i, 0, "archer", flip=True) for i in DIE]
 
     out["slash"] = slash_frames()
     out["blood_spray"] = blood_spray()

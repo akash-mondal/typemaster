@@ -135,6 +135,7 @@ class Canvas:
 import derive as DV
 import font as FT
 import kata as KT
+import hud as HD
 import stage as ST
 from PIL import ImageFont as _IF
 
@@ -156,6 +157,12 @@ def build():
     for k, v in KT.clips().items():
         dv[k] = v
         ms[k] = 70
+    for k, v in HD.clips().items():
+        dv[k] = v
+    ms.update({"shuriken": 60, "spark": 50, "dust": 70, "lantern_pick": 180,
+               "ninja_block": 120, "ninja_stumble": 110, "ninja_slide": 120,
+               "ninja_victory": 300, "archer_idle": 460, "archer_draw": 150,
+               "archer_loose": 120, "archer_die": 110})
     clips = {k: (v, ms.get(k, 100)) for k, v in dv.items()}
 
     # Anchors are PER CLIP, from that clip's own frame size. Using one anchor
@@ -168,6 +175,8 @@ def build():
         "blood_pool": "foot",
         "kata_tiger": "centre", "kata_crane": "centre",
         "kata_shadow": "centre", "kata_still": "centre",
+        "shuriken": "centre", "spark": "centre", "dust": "foot",
+        "lantern_pick": "centre",
     }
 
     entries = []
@@ -175,11 +184,25 @@ def build():
         for i, f in enumerate(frames):
             entries.append((name, i, f, ms))
 
-    cols = 8
+    # Shelf-pack every clip frame at its OWN size. A uniform cell sized to the
+    # largest sprite (the 80x80 kata slams) wasted most of the atlas on 9x9
+    # shuriken and 24x24 sprays.
+    ATLAS_W = 640
+    order = sorted(range(len(entries)), key=lambda n: (-entries[n][2].h, n))
+    placed = {}
+    px_, py_, shelf = 0, 0, 0
+    for n in order:
+        f = entries[n][2]
+        if px_ + f.w > ATLAS_W:
+            px_, py_, shelf = 0, py_ + shelf + 1, 0
+        placed[n] = (px_, py_)
+        px_ += f.w + 1
+        shelf = max(shelf, f.h)
+    clip_h = py_ + shelf + 2
     cw = max(e[2].w for e in entries)
     ch = max(e[2].h for e in entries)
-    rows = (len(entries) + cols - 1) // cols
-    atlas = Image.new("RGBA", (cols * cw, rows * ch), (0, 0, 0, 0))
+    rows = 0
+    atlas = Image.new("RGBA", (ATLAS_W, clip_h), (0, 0, 0, 0))
 
     manifest = {
         "grid": {"width": 320, "height": 240},
@@ -188,12 +211,12 @@ def build():
             "Clint Bellanger, CC-BY 3.0 - opengameart.org/content/platformer-animations"
         ],
         "palette": PAL,
-        "atlas": {"file": "atlas.png", "cell": [cw, ch]},
+        "atlas": {"file": "atlas.png"},
         "clips": {},
     }
 
     for n, (name, i, f, ms) in enumerate(entries):
-        x, y = (n % cols) * cw, (n // cols) * ch
+        x, y = placed[n]
         atlas.paste(f.to_image(), (x, y))
         mode = ANCHOR.get(name, "foot")
         anchor = ([f.w // 2, f.h // 2] if mode == "centre"
@@ -205,7 +228,7 @@ def build():
 
     # ---- fonts: bake Pixel Operator (CC0) into the same atlas
     faces = FT.faces()
-    fy = rows * ch                      # start below the sprite rows
+    fy = clip_h                         # start below the sprite shelves
     manifest["fonts"] = {}
     pad_rows = []
     for fname, (ttf, size) in FT.FACES.items():
@@ -234,9 +257,9 @@ def build():
     # ---- stage tiles: shelf-packed below the fonts, widest first
     manifest["tiles"] = {}
     tiles = ST.tiles()
-    order = sorted(tiles.keys(), key=lambda k: -tiles[k].w)
+    tiles.update(HD.tiles())
+    order = sorted(tiles.keys(), key=lambda k: (-tiles[k].h, k))
     tx, ty, shelf_h = 0, fy, 0
-    ATLAS_W = 640
     tile_pastes = []
     for name in order:
         t = tiles[name]
