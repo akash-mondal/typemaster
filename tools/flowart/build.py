@@ -134,6 +134,8 @@ class Canvas:
 
 import derive as DV
 import font as FT
+import kata as KT
+import stage as ST
 from PIL import ImageFont as _IF
 
 NW, NH = DV.OUT_W, DV.OUT_H
@@ -151,6 +153,9 @@ def build():
         "enemy_die": 110, "slash": 45,
         "blood_spray": 55, "blood_pool": 90,
     }
+    for k, v in KT.clips().items():
+        dv[k] = v
+        ms[k] = 70
     clips = {k: (v, ms.get(k, 100)) for k, v in dv.items()}
 
     # Anchors are PER CLIP, from that clip's own frame size. Using one anchor
@@ -161,6 +166,8 @@ def build():
     ANCHOR = {
         "slash": "centre", "blood_spray": "centre",
         "blood_pool": "foot",
+        "kata_tiger": "centre", "kata_crane": "centre",
+        "kata_shadow": "centre", "kata_still": "centre",
     }
 
     entries = []
@@ -224,16 +231,39 @@ def build():
         fy += rowh + 2
         manifest["fonts"][fname] = entry
 
+    # ---- stage tiles: shelf-packed below the fonts, widest first
+    manifest["tiles"] = {}
+    tiles = ST.tiles()
+    order = sorted(tiles.keys(), key=lambda k: -tiles[k].w)
+    tx, ty, shelf_h = 0, fy, 0
+    ATLAS_W = 640
+    tile_pastes = []
+    for name in order:
+        t = tiles[name]
+        if tx + t.w > ATLAS_W:
+            tx = 0
+            ty += shelf_h + 1
+            shelf_h = 0
+        tile_pastes.append((t.img(), tx, ty))
+        manifest["tiles"][name] = [tx, ty, t.w, t.h]
+        tx += t.w + 1
+        shelf_h = max(shelf_h, t.h)
+    fy = ty + shelf_h + 2
+
     # grow the atlas to fit the font rows, then paste them
     need_h = fy + 2
-    if need_h > atlas.height or 512 > atlas.width:
-        bigger = Image.new("RGBA", (max(atlas.width, 512),
+    if need_h > atlas.height or ATLAS_W > atlas.width:
+        bigger = Image.new("RGBA", (max(atlas.width, ATLAS_W),
                                     max(atlas.height, need_h)), (0, 0, 0, 0))
         bigger.paste(atlas, (0, 0))
         atlas = bigger
     for im, x, y in pad_rows:
         atlas.paste(im, (x, y))
+    for im, x, y in tile_pastes:
+        atlas.paste(im, (x, y))
 
+    manifest["credits"].append(
+        "Kata kanji: Yuji Boku by Kinuta Font Factory, SIL Open Font License 1.1")
     manifest["credits"].append(
         "Text font: Pixel Operator by Jayvee Enaguas (HarvettFox96), CC0 1.0 - "
         "public domain, no attribution required")
