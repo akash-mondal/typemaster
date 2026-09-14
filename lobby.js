@@ -25,7 +25,7 @@
 const LOGO_OUTLINE = [[-0.49547,0.30933],[-0.4862,0.31112],[0.21116,0.31068],[0.27952,0.30645],[0.31143,0.30132],[0.3251,0.29725],[0.35245,0.28326],[0.37524,0.26649],[0.39347,0.24821],[0.40866,0.22729],[0.42153,0.19994],[0.42604,0.18627],[0.43119,0.16348],[0.43986,0.09055],[0.44197,0.05865],[0.44452,0.04497],[0.46184,0.02945],[0.49375,0.00911],[0.49948,0.00395],[0.5,-0.00061],[0.48919,-0.01124],[0.44817,-0.03859],[0.44293,-0.04619],[0.43955,-0.09177],[0.43049,-0.16469],[0.4212,-0.20116],[0.41626,-0.21407],[0.40406,-0.23762],[0.39419,-0.25129],[0.3798,-0.26526],[0.36613,-0.27566],[0.34334,-0.28909],[0.32055,-0.29859],[0.30231,-0.30359],[0.27497,-0.30811],[0.22939,-0.3107],[0.16102,-0.30924],[-0.03041,-0.31143],[-0.17171,-0.30976],[-0.43607,-0.3092],[-0.49076,-0.30838],[-0.49532,-0.30688],[-0.49862,-0.30143],[-0.49822,-0.29687],[-0.49532,-0.29309],[-0.46341,-0.27812],[-0.38137,-0.25198],[-0.24008,-0.19982],[-0.15348,-0.1715],[-0.04409,-0.13364],[0.06986,-0.0913],[0.10632,-0.07955],[0.11482,-0.07353],[0.10632,-0.07213],[0.07442,-0.07583],[0.01517,-0.07714],[-0.00762,-0.07986],[-0.23552,-0.09044],[-0.44063,-0.10285],[-0.4862,-0.10351],[-0.49532,-0.1024],[-0.49832,-0.09632],[-0.49856,-0.09177],[-0.49851,0.02674],[-0.5,0.09511],[-0.49899,0.09967],[-0.49532,0.10273],[-0.4862,0.10406],[-0.3996,0.09842],[-0.32668,0.09625],[-0.23096,0.08967],[-0.18082,0.08786],[0.03796,0.07543],[0.10177,0.07322],[0.10632,0.07477],[0.10745,0.07688],[0.09265,0.08415],[0.04707,0.10124],[-0.27654,0.21242],[-0.2811,0.21502],[-0.42695,0.26741],[-0.49076,0.29359],[-0.49827,0.30021],[-0.49881,0.30477]];
 const LOGO_ASPECT = 0.62285;
 
-const VERSION = '1.29.0';
+const VERSION = '1.29.1';
 const CREAM = 0xF3EEDD, CREAM_SIDE = 0xC9BFA4;
 const easeOutBack = t => 1 + 2.70158 * Math.pow(t - 1, 3) + 1.70158 * Math.pow(t - 1, 2);
 const easeInOut = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
@@ -78,7 +78,12 @@ export function createLobby({ THREE, scene, camera, renderer, controls, ground }
   const label = textPlane('LOGIN', { size: 132, weight: 800, spacing: 0.34, colour: '#F3EEDD', shadow: 'rgba(10,12,18,0.55)' });
   logoRig.add(label.mesh);
 
-  const logo = { shown: false, t: 0, hover: 0, want: 0, appear: 0 };
+  const logo = { shown: false, t: 0, hover: 0, want: 0, appear: 0, spin: 1 };
+  // A still, invisible box around mark and label answers the pointer, so hover
+  // doesn't flicker off while the mark turns edge-on during its hover spin.
+  const hitBox = new THREE.Mesh(new THREE.BoxGeometry(1.15, LOGO_H + 0.6, 0.5), new THREE.MeshBasicMaterial({ visible: false }));
+  hitBox.position.y = (LOGO_H + 0.6) / 2;
+  logoRig.add(hitBox);
 
   // The mark must read on whatever is behind it: the engine's rooms run from a
   // black wall to a near-white one, and a cream logo on a white wall is invisible.
@@ -420,7 +425,7 @@ export function createLobby({ THREE, scene, camera, renderer, controls, ground }
   const overLogo = () => {
     if (suspended || !logoRig.visible || logo.appear < 0.8 || view.name !== 'home') return false;
     ray.setFromCamera(ndc, camera);
-    return ray.intersectObjects([logoMesh, label.mesh], false).length > 0;
+    return ray.intersectObject(hitBox, false).length > 0;
   };
   const onCanvas = e => {
     const r = renderer.domElement.getBoundingClientRect();
@@ -445,6 +450,7 @@ export function createLobby({ THREE, scene, camera, renderer, controls, ground }
       if (id) cursor = 'pointer';
     } else {
       const over = overLogo();
+      if (over && !logo.want && logo.spin >= 1) logo.spin = 0;     // pointer arrived: one turn
       logo.want = over ? 1 : 0;
       if (over) cursor = 'pointer';
     }
@@ -549,14 +555,26 @@ export function createLobby({ THREE, scene, camera, renderer, controls, ground }
       placeLogo();
       logo.hover += (logo.want - logo.hover) * Math.min(1, dt * 10);
       const pop = easeOutBack(clamp01(logo.appear));
-      logoPivot.scale.setScalar(place.w * pop * (1 + logo.hover * 0.05));
+      const k = 1 + logo.hover * 0.06;
+      logoPivot.scale.setScalar(place.w * pop * k);
+      hitBox.scale.setScalar(place.w);
+      // still at rest; on hover it hops, turns once, then breathes while the pointer stays
+      let lift = 0, turn = 0;
+      if (logo.spin < 1) {
+        logo.spin = Math.min(1, logo.spin + dt / 0.9);
+        turn = easeInOut(logo.spin) * Math.PI * 2;
+        lift = Math.sin(Math.PI * logo.spin) * 0.22;
+      }
+      lift += Math.sin(seconds * 3.2) * 0.03 * logo.hover;
+      logoPivot.rotation.set(0, turn, 0);
+      logoPivot.position.y = lift * place.w;
       logoRig.visible = place.ok;
       tone += (toneWant - tone) * Math.min(1, dt * 4);
       applyTone();
       logoFace.emissiveIntensity = (0.06 + logo.hover * 0.22) * (1 - tone);
       const lh = place.w * 0.24 * pop;
       label.mesh.scale.set(lh * label.aspect, lh, 1);
-      label.mesh.position.set(0, place.w * LOGO_H * pop * (1 + logo.hover * 0.05) + lh * 0.75, 0);
+      label.mesh.position.set(0, place.w * (LOGO_H * pop * k + lift) + lh * 0.75, 0);
       label.mesh.material.opacity = clamp01(logo.appear) * (0.85 + logo.hover * 0.15);
     }
 
