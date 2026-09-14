@@ -82,6 +82,64 @@ export function createLobby({ THREE, scene, camera, renderer, controls }) {
 
   const logo = { shown: false, t: 0, hover: 0, want: 0, appear: 0 };
 
+  // The mark must read on whatever is behind it: the engine's rooms run from a
+  // black wall to a near-white one, and a cream logo on a white wall is invisible.
+  // afterRender() samples the frame around the mark a couple of times a second
+  // and eases between a cream mark (dark backdrop) and an ink one (light backdrop).
+  const TONE = {
+    face: [new THREE.Color(CREAM), new THREE.Color(0x16191F)],
+    side: [new THREE.Color(CREAM_SIDE), new THREE.Color(0x3A3F4A)],
+    label: [new THREE.Color(0xFFFFFF), new THREE.Color(0x1E2229)],
+  };
+  let tone = 0, toneWant = 0, lastSample = -1;
+  const _px = new Uint8Array(4), _p3 = new THREE.Vector3();
+  function applyTone() {
+    logoFace.color.copy(TONE.face[0]).lerp(TONE.face[1], tone);
+    logoFace.emissive.copy(logoFace.color);
+    logoSide.color.copy(TONE.side[0]).lerp(TONE.side[1], tone);
+    label.mesh.material.color.copy(TONE.label[0]).lerp(TONE.label[1], tone);
+  }
+  let pageLum = null, pageLumAt = -10;
+  function pageBackdrop() {
+    if (seconds - pageLumAt < 3 && pageLum !== null) return pageLum;
+    pageLumAt = seconds; pageLum = 0;
+    for (let el = renderer.domElement; el; el = el.parentElement) {
+      const m = getComputedStyle(el).backgroundColor.match(/[\d.]+/g);
+      if (m && (m[3] === undefined || +m[3] > 0.5)) {
+        pageLum = (0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2]) / 255;
+        break;
+      }
+    }
+    return pageLum;
+  }
+  function sampleBackdrop() {
+    const gl = renderer.getContext();
+    logoRig.getWorldPosition(_p3).project(camera);
+    const cx = (_p3.x * 0.5 + 0.5) * gl.drawingBufferWidth;
+    const cy = (_p3.y * 0.5 + 0.5) * gl.drawingBufferHeight;
+    // the mark's rough on-screen half size, then points just outside it
+    const r = gl.drawingBufferHeight * 0.13;
+    const pts = [[-1.3, 0], [1.3, 0], [0, -1.1], [-1, 1.2], [1, 1.2], [-1, -1], [1, -1]];
+    let sum = 0, n = 0;
+    const prev = renderer.getRenderTarget();
+    renderer.setRenderTarget(null);
+    for (const [dx, dy] of pts) {
+      const x = Math.round(cx + dx * r), y = Math.round(cy + dy * r);
+      if (x < 0 || y < 0 || x >= gl.drawingBufferWidth || y >= gl.drawingBufferHeight) continue;
+      gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, _px);
+      // a transparent canvas shows the page behind it, so blend with that colour
+      const a = _px[3] / 255, bg = pageBackdrop();
+      const lum = (0.2126 * _px[0] + 0.7152 * _px[1] + 0.0722 * _px[2]) / 255;
+      sum += lum * a + bg * (1 - a); n++;
+    }
+    renderer.setRenderTarget(prev);
+    if (n) {
+      const lum = sum / n;
+      // hysteresis, so a mid-grey wall doesn't flicker between the two
+      if (lum > 0.58) toneWant = 1; else if (lum < 0.42) toneWant = 0;
+    }
+  }
+
   // ---------------------------------------------------------------- the board
   const boardRig = new THREE.Group();
   boardRig.visible = false;
@@ -320,6 +378,9 @@ export function createLobby({ THREE, scene, camera, renderer, controls }) {
       <span>GLOBAL LEADERBOARDS</span>
     </div>`;
   document.body.appendChild(root);
+  // badge and tab clicks are the lobby's; they must not bubble on to the page's handlers
+  for (const type of ['click', 'pointerdown', 'mousedown', 'pointerup', 'mouseup', 'touchstart', 'touchend'])
+    root.addEventListener(type, e => e.stopPropagation());
   const badge = root.querySelector('.tmx-badge');
   const tab = root.querySelector('.tmx-tab');
   const tabText = tab.querySelector('span');
@@ -351,7 +412,30 @@ export function createLobby({ THREE, scene, camera, renderer, controls }) {
     const b = board.buttons.find(b => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h);
     return { onBoard: true, id: b ? b.id : null };
   }
-  renderer.domElement.addEventListener('pointermove', e => {
+  // What the lobby answers is decided here, in the CAPTURE phase on window, so it
+  // runs before any page or engine handler. Anything the lobby takes is stopped
+  // dead: on the host page a click on the logo also reached the menu's own click
+  // handler, which reset the screen before the board could open.
+  const inLobbyDom = e => e.target instanceof Node && root.contains(e.target);
+  const overLogo = () => {
+    if (suspended || !logoRig.visible || logo.appear < 0.8 || view.name !== 'home') return false;
+    ray.setFromCamera(ndc, camera);
+    return ray.intersectObjects([logoMesh, label.mesh], false).length > 0;
+  };
+  const onCanvas = e => {
+    const r = renderer.domElement.getBoundingClientRect();
+    return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+  };
+  // true when this pointer event belongs to the lobby
+  const claims = e => {
+    if (suspended || inLobbyDom(e) || !onCanvas(e)) return false;
+    toNdc(e);
+    return (board.open && board.t > 0.05) || overLogo();
+  };
+  const swallow = e => { e.stopImmediatePropagation(); if (e.cancelable) e.preventDefault(); };
+
+  addEventListener('pointermove', e => {
+    if (inLobbyDom(e) || !onCanvas(e)) { logo.want = 0; return; }
     toNdc(e); pointerIn = true;
     let cursor = '';
     if (board.open && board.t > 0.6) {
@@ -359,16 +443,31 @@ export function createLobby({ THREE, scene, camera, renderer, controls }) {
       const id = h && h.id;
       if (id !== board.hover) { board.hover = id; board.dirty = true; }
       if (id) cursor = 'pointer';
-    } else if (!suspended && logoRig.visible && view.name === 'home') {
-      ray.setFromCamera(ndc, camera);
-      const over = ray.intersectObjects([logoMesh, label.mesh], false).length > 0;
+    } else {
+      const over = overLogo();
       logo.want = over ? 1 : 0;
       if (over) cursor = 'pointer';
     }
     renderer.domElement.style.cursor = cursor;
-  });
-  renderer.domElement.addEventListener('pointerleave', () => { pointerIn = false; logo.want = 0; });
-  renderer.domElement.addEventListener('click', e => {
+    document.documentElement.style.cursor = cursor;
+  }, true);
+
+  let pressClaimed = false;
+  for (const type of ['pointerdown', 'mousedown', 'touchstart']) {
+    addEventListener(type, e => {
+      const p = e.touches ? e.touches[0] : e;
+      if (type === 'pointerdown') pressClaimed = !!p && claims(p);
+      if (pressClaimed) swallow(e);
+    }, { capture: true, passive: false });
+  }
+  for (const type of ['pointerup', 'mouseup', 'touchend']) {
+    addEventListener(type, e => { if (pressClaimed) swallow(e); }, { capture: true, passive: false });
+  }
+  addEventListener('click', e => {
+    const mine = pressClaimed || claims(e);
+    pressClaimed = false;
+    if (!mine) return;
+    swallow(e);
     toNdc(e);
     if (board.open) {
       if (board.t < 0.6) return;
@@ -377,16 +476,25 @@ export function createLobby({ THREE, scene, camera, renderer, controls }) {
       if (!h || h.id === 'dismiss') { closeBoard(); emit('dismiss'); }
       return;
     }
-    if (!suspended && logoRig.visible && logo.appear > 0.8 && view.name === 'home') {
-      ray.setFromCamera(ndc, camera);
-      if (ray.intersectObjects([logoMesh, label.mesh], false).length) openBoard();
-    }
-  });
+    if (overLogo()) openBoard();
+  }, true);
+
+  // While the board or the leaderboard is up, the keyboard belongs to the lobby:
+  // Escape closes it and nothing else reaches the menu (typing START included).
   addEventListener('keydown', e => {
-    if (e.key !== 'Escape' || suspended) return;
-    if (board.open) { closeBoard(); emit('dismiss'); }
-    else if (view.name === 'leaderboard') setView('home');
-  });
+    if (suspended) return;
+    const boardUp = board.open && board.want === 1;
+    const lbUp = view.name === 'leaderboard';
+    if (!boardUp && !lbUp) return;
+    if (inLobbyDom(e)) return;                  // the tab's own Enter/Space
+    swallow(e);
+    if (e.key !== 'Escape') return;
+    if (boardUp) { closeBoard(); emit('dismiss'); }
+    else setView('home');
+  }, true);
+  addEventListener('keyup', e => {
+    if (!suspended && ((board.open && board.want === 1) || view.name === 'leaderboard') && !inLobbyDom(e)) swallow(e);
+  }, true);
 
   function openBoard() { board.open = true; board.want = 1; board.dirty = true; boardRig.visible = true; }
   function closeBoard() { board.want = 0; }
@@ -414,7 +522,9 @@ export function createLobby({ THREE, scene, camera, renderer, controls }) {
       logoPivot.position.y = Math.sin(seconds * 1.6) * hh * 0.025;
       logoPivot.rotation.y = Math.sin(seconds * 0.9) * 0.26 + logo.hover * Math.sin(seconds * 3) * 0.1;
       logoPivot.rotation.x = -0.12 + Math.sin(seconds * 1.3) * 0.05;
-      logoFace.emissiveIntensity = 0.06 + logo.hover * 0.22;
+      tone += (toneWant - tone) * Math.min(1, dt * 4);
+      applyTone();
+      logoFace.emissiveIntensity = (0.06 + logo.hover * 0.22) * (1 - tone);
       halo.scale.set(size * 2.6 * pop, size * 2.0 * pop, 1);
       halo.position.y = logoPivot.position.y;
       halo.material.opacity = (0.10 + logo.hover * 0.18) * clamp01(logo.appear);
@@ -496,7 +606,15 @@ export function createLobby({ THREE, scene, camera, renderer, controls }) {
     busy() { return !suspended && (board.open || view.name === 'leaderboard' || view.owns); },
   };
 
-  return { api, step, ownsCamera: () => view.owns };
+  // call straight after the frame is rendered, while its pixels are still readable
+  function afterRender() {
+    if (!logoRig.visible || suspended) return;
+    if (seconds - lastSample < 0.5 && lastSample >= 0) return;
+    lastSample = seconds;
+    try { sampleBackdrop(); } catch (e) { /* a lost context just keeps the last tone */ }
+  }
+
+  return { api, step, afterRender, ownsCamera: () => view.owns };
 
   // ---------------------------------------------------------------- helpers
   function roundRect(g, x, y, w, h, r) {

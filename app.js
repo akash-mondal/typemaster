@@ -1795,6 +1795,7 @@ renderer.setAnimationLoop(now=>{
   } else if(T && T.ao && ensureAO()){
     aoComposer.render();
   } else renderer.render(scene,camera);
+  lobby.afterRender();
   if(++frames===60){
     const hudEl = document.getElementById('hud');
     hudEl.textContent = SHOT.free
