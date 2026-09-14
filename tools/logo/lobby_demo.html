@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>TYPEMAXX lobby - local demo</title>
+<style>html,body{margin:0;height:100%;overflow:hidden}iframe{border:0;width:100%;height:100%}</style>
+<iframe id="f" src="../../index.html"></iframe>
+<script>
+// Drives the lobby the way the host page will, for looking at each state.
+//   ?state=guest     the floating login mark
+//   ?state=board     the login board open
+//   ?state=user      signed in: badge top-right, leaderboard tab on the right
+//   ?state=board-lb  signed in and turned to the leaderboard
+const state = new URLSearchParams(location.search).get('state') || 'guest';
+const f = document.getElementById('f');
+f.addEventListener('load', () => {
+  const w = f.contentWindow;
+  const ready = setInterval(() => {
+    const L = w.TYPEMAXX_LOBBY;
+    if (!L) return;
+    clearInterval(ready);
+    L.on('login', () => console.log('[lobby] login'));
+    L.on('signout', () => { console.log('[lobby] signout'); L.setUser(null); L.showLogin(true); });
+    L.on('dismiss', () => console.log('[lobby] dismiss'));
+    if (state === 'guest' || state === 'board') L.showLogin(true);
+    if (state === 'board') setTimeout(() => L.openBoard(), 600);
+    if (state === 'user' || state === 'board-lb')
+      L.setUser({ name: 'Akash Mondal', handle: 'akash' });
+    if (state === 'board-lb') setTimeout(() => L.view('leaderboard'), 600);
+  }, 100);
+});
+</script>

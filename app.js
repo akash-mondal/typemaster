@@ -17,6 +17,7 @@ import { buildCRT, buildPlainProp } from './crt.js';
 import { PROPS, SHOT, BOARD, SCENE } from './props.js';
 import { rainOn, stepRain } from './rain.js';
 import { TEXT } from './text.js';
+import { createLobby } from './lobby.js';
 
 // A page can override SCENE without copying props.js into the project, which
 // keeps a simple project to a single index.html:
@@ -57,7 +58,8 @@ const CFG = {
 
 // ══════════════════════════════════════════════════════════ renderer
 const stage = document.getElementById('stage');
-const renderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
+const renderer = new THREE.WebGLRenderer({antialias:true, alpha:true,
+  preserveDrawingBuffer: /[?&]capture\b/.test(location.search)});   // ?capture lets tooling read frames
 // Resolution multiplier. Left at 2 so nothing looks different by default, but
 // exposed: on a Retina panel this is 4x the fragments, and the tube shader
 // hides a drop to 1.5 well if more headroom is ever needed.
@@ -135,6 +137,11 @@ controls.enabled = false;              // re-enabled below when SHOT.free is set
 controls.enableDamping = true; controls.dampingFactor = 0.06; controls.enablePan = false;
 controls.minPolarAngle = THREE.MathUtils.degToRad(14);
 controls.maxPolarAngle = THREE.MathUtils.degToRad(78);
+
+// The lobby: login mark, login board, user badge, leaderboard turn. Presentation
+// only - the host page decides when it shows and what login does (see lobby.js).
+const lobby = createLobby({ THREE, scene, camera, renderer, controls });
+window.TYPEMAXX_LOBBY = lobby.api;
 
 // ══════════════════════════════════════════════════════════ procedural maps
 // A height field turned into a tangent-space normal map by Sobel. Roughness alone
@@ -1777,7 +1784,8 @@ renderer.setAnimationLoop(now=>{
   // (the volume knob used to idle-spin here; the scene is static now)
   if(root && root.userData.step) root.userData.step(dt);
   for(const p of propObjects.values()) if(p.step) p.step(now);
-  controls.update();
+  if(!lobby.ownsCamera()) controls.update();
+  lobby.step(dt, now);
   const T = THEMES[activeTheme];
   if(T && T.bloom){
     const c = ensureComposer();
