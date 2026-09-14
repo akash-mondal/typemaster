@@ -391,7 +391,9 @@ function drawFight(now, lethalToNinja){
 }
 
 // ---- the full rooftop stage, built from manifest.tiles
-const ST = { W: 320, H: 240, roofY: 158, pitch: 176, roofW: 136, speed: 58 };
+// Three height lanes, six roof types, forks, and a sky with things in it.
+const ST = { W: 320, H: 240, speed: 58, voidY: 206 };
+const LANE_Y = [118, 150, 182];          // high, mid, low: the ridge you run on
 const KATA_NAMES = ['kata_tiger', 'kata_crane', 'kata_shadow', 'kata_still'];
 
 function tile(name){ return M.tiles && M.tiles[name]; }
@@ -408,6 +410,10 @@ function blitFlipX(t, x, y){
   vctx.drawImage(IMG, t[0], t[1], t[2], t[3], 0, 0, t[2], t[3]);
   vctx.restore();
 }
+function tileAcross(name, x, y, w){
+  const t = tile(name); if (!t) return;
+  for (let cx = 0; cx < w; cx += t[2]) blit(t, x + cx, y, Math.min(t[2], w - cx), t[3]);
+}
 function strip(name, y, scroll, factor){
   const t = tile(name); if (!t) return;
   const off = -(((scroll * factor) % 320) + 320) % 320;
@@ -415,13 +421,95 @@ function strip(name, y, scroll, factor){
 }
 function wrapX(x, period){ return ((x % period) + period) % period; }
 
+// deterministic hash so the level is the same every frame with no stored state
+function hash(i, k){
+  let x = (i * 374761393 + k * 668265263) | 0;
+  x = Math.imul(x ^ (x >>> 13), 1274126177);
+  return ((x ^ (x >>> 16)) >>> 0) / 4294967296;
+}
+
+// ---- the level: a main path of roof segments plus fork branches
+const TYPES = ['town', 'inn', 'temple', 'town', 'shrine', 'inn', 'tower', 'town', 'bridge'];
+const segCache = [];
+function seg(i){
+  if (segCache[i]) return segCache[i];
+  const prev = i > 0 ? seg(i - 1) : null;
+  const type = TYPES[Math.floor(hash(i, 1) * TYPES.length)];
+  let lane = prev ? prev.lane : 1;
+  // lanes drift by at most one step, and bridges always sit low
+  const r = hash(i, 2);
+  if (prev && r < 0.22) lane = Math.max(0, lane - 1);
+  else if (prev && r < 0.44) lane = Math.min(2, lane + 1);
+  if (type === 'bridge') lane = 2;
+  const w = type === 'temple' ? 176 : type === 'bridge' ? 120 : type === 'shrine' ? 96
+          : type === 'tower' ? 88 : 112 + Math.floor(hash(i, 3) * 3) * 24;
+  const gap = 28 + Math.floor(hash(i, 4) * 3) * 8;
+  const x = prev ? prev.x + prev.w + gap : 0;
+  // every so often a FORK: a second roof runs parallel on the neighbouring lane
+  const fork = (i % 5 === 3) ? { lane: lane === 0 ? 1 : lane - 1,
+                                 type: TYPES[Math.floor(hash(i, 5) * TYPES.length)] } : null;
+  if (fork && fork.type === 'bridge') fork.type = 'town';
+  return (segCache[i] = { i, x, w, lane, type, fork });
+}
+function segAt(worldX){
+  let i = 0;
+  while (seg(i).x + seg(i).w + 60 < worldX) i++;
+  return i;
+}
+
+// ---- one roof, drawn at screen x
+function drawRoof(x, w, ry, type, i){
+  const wallTop = ry + 17;
+  if (type === 'bridge'){
+    // a plank walkway with a railing behind it, on two posts, over the void
+    tileAcross('railing', x, ry - 8, w);
+    tileAcross('planks', x, ry, w);
+    vctx.fillStyle = '#2A1C12';
+    vctx.fillRect(x + 6, ry + 6, 3, ST.voidY - ry); vctx.fillRect(x + w - 9, ry + 6, 3, ST.voidY - ry);
+    return;
+  }
+  // wall
+  vctx.fillStyle = type === 'temple' ? '#0A1418' : type === 'inn' ? '#16100E' : '#0D1220';
+  vctx.fillRect(x + 2, wallTop, w - 4, ST.voidY - wallTop);
+  // windows along the wall
+  const shojiLit = tile('shoji_lit'), shojiDark = tile('shoji_dark');
+  for (let k = 0, wx = x + 12; wx < x + w - 20; wx += 30, k++){
+    blit(hash(i, 10 + k) < 0.65 ? shojiLit : shojiDark, wx, wallTop + 22);
+  }
+  // signboard hanging under the eave, on inns and townhouses
+  if (type === 'inn' || type === 'town'){
+    const kx = x + 12, kw = w - 24;
+    tileAcross('kanban_mid', kx + 5, wallTop + 3, kw - 10);
+    blit(tile('kanban_end'), kx, wallTop + 3);
+    blitFlipX(tile('kanban_end'), kx + kw - 5, wallTop + 3);
+    blit(tile('lantern'), x + w - 10, wallTop + 2);
+  }
+  // eave shadow, then the pitched face, then the ridge
+  tileAcross('eave_shadow', x, ry + 14, w);
+  const face = type === 'temple' ? 'face_copper' : type === 'inn' ? 'face_terracotta'
+             : type === 'shrine' ? 'face_thatch' : 'face_kawara';
+  tileAcross(face, x, ry, w);
+  if (type === 'temple'){
+    tileAcross('ridge_ornate', x - 4, ry - 5, w + 8);
+    blit(tile('eave_curl'), x - 10, ry + 8);
+    blitFlipX(tile('eave_curl'), x + w - 2, ry + 8);
+    blit(tile('shachihoko'), x - 6, ry - 13);
+    blitFlipX(tile('shachihoko'), x + w - 2, ry - 13);
+  } else {
+    tileAcross('ridge_plain', x - 2, ry - 4, w + 4);
+    blit(tile('eave_straight'), x - 5, ry + 11);
+    blitFlipX(tile('eave_straight'), x + w - 1, ry + 11);
+  }
+  if (type === 'tower') blit(tile('yagura'), x + w - 34, ry - 26);
+  if (type === 'shrine') blit(tile('shrine'), x + w - 40, ry - 28);
+}
+
 function drawStage(now, kataMode){
   beginScene();
   const speed = +$('#speed').value / 100;
   let t = now / 1000 * speed;
 
-  // a kata slams every 3s. The world freezes for its first 0.25s - the
-  // hit-stop - so scrolling time runs on a clock with those gaps removed.
+  // a kata slams every 3s; the world freezes 0.25s for the hit-stop
   let slam = null;
   if (kataMode){
     const period = 3.0, k = t % period, cycles = Math.floor(t / period);
@@ -429,22 +517,48 @@ function drawStage(now, kataMode){
     t = t - cycles * 0.25 - Math.min(k, 0.25);
   }
   const scroll = t * ST.speed;
-
-  // shake during the hit-stop
-  if (slam && slam.stop){
+  if (slam && slam.stop)
     vctx.translate(((now / 30 | 0) % 2) * 2 - 1, ((now / 45 | 0) % 2) - 0.5);
-  }
 
-  // ---- sky, stars, moon: fixed
+  // ---- sky, stars, moon
   blit(tile('sky'), 0, 0);
-  vctx.fillStyle = '#1C263E';
-  vctx.fillRect(0, 120, ST.W, 60);
+  vctx.fillStyle = '#1C263E'; vctx.fillRect(0, 120, ST.W, 100);
   vctx.fillStyle = '#4F7A62';
   for (let i = 0; i < 34; i++){
     const sx = (i * 97 + 13) % 320, sy = (i * 61 + 7) % 105;
     if (((now / 900 + i) | 0) % 5) vctx.fillRect(sx, sy, 1, 1);
   }
+  // a shooting star every ~9s
+  const ss = (now / 1000) % 9;
+  if (ss < 0.5){
+    const p = ss / 0.5, sx0 = 60 + p * 140, sy0 = 20 + p * 30;
+    vctx.fillStyle = '#E8F4EC';
+    for (let k = 0; k < 6; k++) vctx.fillRect(sx0 - k * 2, sy0 - k * 0.5, 2, 1);
+  }
   blit(tile('moon'), 236, 26);
+  // clouds drift slowest of all
+  for (let i = 0; i < 4; i++){
+    blit(tile('cloud_long'),  wrapX(i * 110 - scroll * 0.05 - now * 0.004, 400) - 40, 22 + i * 19);
+    blit(tile('cloud_short'), wrapX(i * 90 + 50 - scroll * 0.07 - now * 0.006, 400) - 40, 34 + i * 17);
+  }
+  // crows circle the moon
+  for (let i = 0; i < 3; i++){
+    const a = now / 1400 + i * 2.1;
+    blit(tile(((now / 220 | 0) + i) % 2 ? 'crow_a' : 'crow_b'),
+         250 + Math.cos(a) * 28, 40 + Math.sin(a) * 9);
+  }
+  // a skein of cranes crosses, right to left, once every 40s
+  const cx0 = 380 - ((now / 1000) % 40) * 18;
+  for (let i = 0; i < 5; i++){
+    const dx = Math.abs(i - 2) * 14, dy = Math.abs(i - 2) * 6;
+    blit(tile(((now / 260 | 0) + i) % 2 ? 'crane_a' : 'crane_b'), cx0 + dx, 48 + dy);
+  }
+  // sky lanterns rising
+  for (let i = 0; i < 6; i++){
+    const lx = wrapX(i * 57 + 20 - scroll * 0.15 + Math.sin(now / 900 + i) * 6, 340) - 10;
+    const ly = wrapX(i * 43 - now * 0.012, 180) - 10;
+    blit(tile(i % 2 ? 'sky_lantern' : 'sky_lantern_dim'), lx, ly);
+  }
 
   // ---- ridges and temples, three depths
   strip('ridge_far', 92, scroll, 0.10);
@@ -458,88 +572,75 @@ function drawStage(now, kataMode){
   for (let k = 0; k <= 1; k++) blit(tile('torii'), nearOff + k * 320 + 150, 146);
   strip('ridge_near', 122, scroll, 0.36);
 
-  // ---- the void below the rooftops
+  // ---- the void
   vctx.fillStyle = '#000';
-  vctx.fillRect(0, ST.roofY + 20, ST.W, ST.H - ST.roofY - 20);
+  vctx.fillRect(0, ST.voidY, ST.W, ST.H - ST.voidY);
 
-  // ---- the roofs, scrolling at 1.0
-  const first = Math.floor((scroll - 140) / ST.pitch);
-  for (let i = first; i < first + 4; i++){
-    const x = Math.round(i * ST.pitch - scroll + 120), w = ST.roofW;
-    if (x + w < -20 || x > 340) continue;
-    // body
-    vctx.fillStyle = '#0D1220';
-    vctx.fillRect(x + 2, ST.roofY + 8, w - 4, ST.H);
-    // board
-    vctx.fillStyle = '#0A0D12';
-    vctx.fillRect(x + 8, ST.roofY + 14, w - 16, 14);
-    vctx.fillStyle = '#4F7A62';
-    vctx.fillRect(x + 8, ST.roofY + 14, w - 16, 1);
-    vctx.fillRect(x + 8, ST.roofY + 27, w - 16, 1);
-    vctx.fillRect(x + 8, ST.roofY + 14, 1, 14);
-    vctx.fillRect(x + w - 9, ST.roofY + 14, 1, 14);
-    // windows
-    vctx.fillStyle = '#F2A63C';
-    for (let wx = x + 16; wx < x + w - 16; wx += 40) vctx.fillRect(wx, ST.roofY + 38, 3, 4);
-    // tiled face and cap
-    for (let cx = x; cx < x + w; cx += 64)
-      blit(tile('roof_tiles'), cx, ST.roofY, Math.min(64, x + w - cx), 8);
-    for (let cx = x; cx < x + w; cx += 64)
-      blit(tile('roof_cap'), cx, ST.roofY - 3, Math.min(64, x + w - cx), 3);
-    blit(tile('eave_end'), x - 10, ST.roofY - 4);
-    blitFlipX(tile('eave_end'), x + w, ST.roofY - 4);
-    // a lantern under every other eave, a ronin on every other roof
-    if (i % 2 === 0) blit(tile('lantern'), x + w - 4, ST.roofY + 4);
-    if (i % 2 === 1) put('enemy_idle', loopFrame('enemy_idle', now / 1000), x + w - 30, ST.roofY + 1);
+  // ---- roofs: fork branches first (behind), then the main path
+  const i0 = segAt(scroll - 40);
+  for (let i = i0; i < i0 + 5; i++){
+    const s = seg(i);
+    if (!s.fork) continue;
+    drawRoof(Math.round(s.x - scroll + 120), s.w, LANE_Y[s.fork.lane], s.fork.type, i + 1000);
+  }
+  for (let i = i0; i < i0 + 5; i++){
+    const s = seg(i);
+    const x = Math.round(s.x - scroll + 120);
+    if (x + s.w < -40 || x > 360) continue;
+    drawRoof(x, s.w, LANE_Y[s.lane], s.type, i);
+    // a kite tethered to every fourth roof
+    if (i % 4 === 1){
+      const kx = x + 30 + Math.sin(now / 700 + i) * 6, ky = LANE_Y[s.lane] - 46 + Math.sin(now / 500 + i) * 3;
+      vctx.fillStyle = '#4F7A62';
+      const steps = 12;
+      for (let k = 0; k < steps; k++){
+        const u = k / steps;
+        vctx.fillRect(Math.round(kx + 4 + (x + 30 - kx - 4) * u), Math.round(ky + 11 + (LANE_Y[s.lane] - 4 - ky - 11) * u), 1, 1);
+      }
+      blit(tile('kite'), kx, ky);
+    }
+    if (i % 3 === 2) put('enemy_idle', loopFrame('enemy_idle', now / 1000), x + s.w - 30, LANE_Y[s.lane] + 1);
   }
 
-  // ---- the ninja: runs, jumps the gaps
-  const phase = wrapX(scroll, ST.pitch);
-  const airborne = phase > ST.roofW;
-  let lift = 0, clipName, fi;
-  if (airborne){
-    const u = (phase - ST.roofW) / (ST.pitch - ST.roofW);
-    lift = Math.sin(u * Math.PI) * 30;
-    clipName = 'ninja_jump';
-    fi = Math.min(5, Math.floor(u * 6));
+  // ---- the ninja: on the main path, jumping gaps and lane changes
+  const wx = scroll + 120;
+  const ci = segAt(wx - 60);
+  let cur = seg(ci);
+  while (cur.x + cur.w < wx) cur = seg(cur.i + 1);
+  let clipName, fi, foot;
+  if (wx >= cur.x || cur.i === 0){
+    clipName = 'ninja_run'; fi = loopFrame('ninja_run', now / 1000); foot = LANE_Y[cur.lane] + 1;
   } else {
-    clipName = 'ninja_run';
-    fi = loopFrame('ninja_run', now / 1000);
+    const prev = seg(cur.i - 1);
+    const u = (wx - (prev.x + prev.w)) / (cur.x - (prev.x + prev.w));
+    const y0 = LANE_Y[prev.lane], y1 = LANE_Y[cur.lane];
+    foot = y0 + (y1 - y0) * u - Math.sin(u * Math.PI) * 30 + 1;
+    clipName = 'ninja_jump'; fi = Math.min(5, Math.floor(u * 6));
   }
-  if (slam && slam.stop) { clipName = 'ninja_strike'; fi = 2; }
-  put(clipName, fi, 120, ST.roofY + 1 - lift);
+  if (slam && slam.stop){ clipName = 'ninja_strike'; fi = 2; }
+  put(clipName, fi, 120, foot);
 
-  // ---- foreground: bamboo passing in front, at 1.5x
+  // ---- foreground bamboo, rain, leaves
   const bam = tile('bamboo');
   for (const base of [30, 210]){
     const bx = wrapX(base - scroll * 1.5, 480) - 80;
     for (let by = -10; by < ST.H; by += 48) blit(bam, bx, by);
   }
-
-  // ---- rain, falling diagonally; leaves drifting
   const rn = tile('rain'), lf = tile('leaf');
-  for (let i = 0; i < 30; i++){
-    const rx = wrapX(i * 53 - now * 0.05 - scroll * 0.3, 340) - 10;
-    const ry = wrapX(i * 37 + now * 0.16, 200) - 10;
-    blit(rn, rx, ry);
-  }
-  for (let i = 0; i < 8; i++){
-    const lx = wrapX(i * 41 - now * 0.02 - scroll * 0.6, 340) - 10;
-    const ly = wrapX(i * 29 + now * 0.028 + Math.sin(now / 700 + i) * 6, 250) - 5;
-    blit(lf, lx, ly);
-  }
+  for (let i = 0; i < 30; i++)
+    blit(rn, wrapX(i * 53 - now * 0.05 - scroll * 0.3, 340) - 10, wrapX(i * 37 + now * 0.16, 200) - 10);
+  for (let i = 0; i < 8; i++)
+    blit(lf, wrapX(i * 41 - now * 0.02 - scroll * 0.6, 340) - 10,
+             wrapX(i * 29 + now * 0.028 + Math.sin(now / 700 + i) * 6, 250) - 5);
 
-  // ---- the kata slam itself
+  // ---- the kata slam
   if (slam){
     const c = M.clips[KATA_NAMES[slam.idx]];
     if (c){
       const f = c.frames[Math.min(7, Math.floor(slam.u * 8))];
-      vctx.drawImage(IMG, f[0], f[1], f[2], f[3], 120, 70, f[2], f[3]);
+      vctx.drawImage(IMG, f[0], f[1], f[2], f[3], 120, 60, f[2], f[3]);
     }
-    if (slam.u < 0.07){
-      vctx.fillStyle = 'rgba(232,244,236,0.75)';
-      vctx.fillRect(-2, -2, ST.W + 4, ST.H + 4);
-    }
+    if (slam.u < 0.07){ vctx.fillStyle = 'rgba(232,244,236,0.75)'; vctx.fillRect(-2, -2, ST.W + 4, ST.H + 4); }
   }
   endScene();
 }
