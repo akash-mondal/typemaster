@@ -25,7 +25,9 @@
 const LOGO_OUTLINE = [[-0.49547,0.30933],[-0.4862,0.31112],[0.21116,0.31068],[0.27952,0.30645],[0.31143,0.30132],[0.3251,0.29725],[0.35245,0.28326],[0.37524,0.26649],[0.39347,0.24821],[0.40866,0.22729],[0.42153,0.19994],[0.42604,0.18627],[0.43119,0.16348],[0.43986,0.09055],[0.44197,0.05865],[0.44452,0.04497],[0.46184,0.02945],[0.49375,0.00911],[0.49948,0.00395],[0.5,-0.00061],[0.48919,-0.01124],[0.44817,-0.03859],[0.44293,-0.04619],[0.43955,-0.09177],[0.43049,-0.16469],[0.4212,-0.20116],[0.41626,-0.21407],[0.40406,-0.23762],[0.39419,-0.25129],[0.3798,-0.26526],[0.36613,-0.27566],[0.34334,-0.28909],[0.32055,-0.29859],[0.30231,-0.30359],[0.27497,-0.30811],[0.22939,-0.3107],[0.16102,-0.30924],[-0.03041,-0.31143],[-0.17171,-0.30976],[-0.43607,-0.3092],[-0.49076,-0.30838],[-0.49532,-0.30688],[-0.49862,-0.30143],[-0.49822,-0.29687],[-0.49532,-0.29309],[-0.46341,-0.27812],[-0.38137,-0.25198],[-0.24008,-0.19982],[-0.15348,-0.1715],[-0.04409,-0.13364],[0.06986,-0.0913],[0.10632,-0.07955],[0.11482,-0.07353],[0.10632,-0.07213],[0.07442,-0.07583],[0.01517,-0.07714],[-0.00762,-0.07986],[-0.23552,-0.09044],[-0.44063,-0.10285],[-0.4862,-0.10351],[-0.49532,-0.1024],[-0.49832,-0.09632],[-0.49856,-0.09177],[-0.49851,0.02674],[-0.5,0.09511],[-0.49899,0.09967],[-0.49532,0.10273],[-0.4862,0.10406],[-0.3996,0.09842],[-0.32668,0.09625],[-0.23096,0.08967],[-0.18082,0.08786],[0.03796,0.07543],[0.10177,0.07322],[0.10632,0.07477],[0.10745,0.07688],[0.09265,0.08415],[0.04707,0.10124],[-0.27654,0.21242],[-0.2811,0.21502],[-0.42695,0.26741],[-0.49076,0.29359],[-0.49827,0.30021],[-0.49881,0.30477]];
 const LOGO_ASPECT = 0.62285;
 
-const VERSION = '1.29.2';
+import { createChalkboard } from './chalkboard.js';
+
+const VERSION = '1.30.0';
 const CREAM = 0xF3EEDD, CREAM_SIDE = 0xC9BFA4;
 const easeOutBack = t => 1 + 2.70158 * Math.pow(t - 1, 3) + 1.70158 * Math.pow(t - 1, 2);
 const easeInOut = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
@@ -233,96 +235,100 @@ export function createLobby({ THREE, scene, camera, renderer, controls, ground }
   }
 
   // ---------------------------------------------------------------- leaderboard
-  const LW = 1600, LH = 1000;
-  const lbCanvas = document.createElement('canvas');
-  lbCanvas.width = LW; lbCanvas.height = LH;
-  const lbTex = new THREE.CanvasTexture(lbCanvas);
-  lbTex.colorSpace = THREE.SRGBColorSpace;
-  lbTex.anisotropy = 8;
-  const lbMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({
-    map: lbTex, transparent: true, toneMapped: false,
-  }));
-  lbMesh.visible = false;
-  scene.add(lbMesh);
-  let lbPainter = null, lbLastPaint = -1;
+  // A classroom chalkboard, built on first visit. Painters draw in chalk colours;
+  // chalkboard.js turns every stroke into chalk on the slate.
+  let chalkboard = null, lbPainter = null, lbLastPaint = -1;
+  function ensureChalkboard() {
+    if (chalkboard) return chalkboard;
+    chalkboard = createChalkboard(THREE);
+    chalkboard.group.visible = false;
+    scene.add(chalkboard.group);
+    chalkboard.fontsReady.then(() => paintLeaderboard(seconds));
+    return chalkboard;
+  }
 
-  function defaultLeaderboard(g, W, H) {
-    g.clearRect(0, 0, W, H);
-    roundRect(g, 10, 10, W - 20, H - 20, 48);
-    const grad = g.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0, '#131824'); grad.addColorStop(1, '#090C13');
-    g.fillStyle = grad; g.fill();
-    g.lineWidth = 3; g.strokeStyle = 'rgba(243,238,221,0.2)'; g.stroke();
-    g.textAlign = 'left'; g.fillStyle = '#F3EEDD';
-    g.font = `800 30px ${FONT}`;
-    spaced(g, 'GLOBAL', 90, 120, 0.3, 'left');
-    g.font = `800 96px ${FONT}`;
-    g.fillText('Leaderboards', 84, 222);
-    g.fillStyle = 'rgba(243,238,221,0.55)';
-    g.font = `400 34px ${FONT}`;
-    g.fillText('Every Commonsmade player, every game.', 90, 280);
-    // tabs
-    const tabs = ['KATA', 'ALL GAMES'];
-    let tx = 90;
-    g.font = `700 26px ${FONT}`;
-    tabs.forEach((t, i) => {
-      const w = g.measureText(t).width + 64;
-      roundRect(g, tx, 330, w, 60, 30);
-      g.fillStyle = i === 0 ? '#F3EEDD' : 'rgba(243,238,221,0.08)'; g.fill();
-      g.fillStyle = i === 0 ? '#0A0D14' : 'rgba(243,238,221,0.7)';
-      g.fillText(t, tx + 32, 370);
-      tx += w + 16;
-    });
-    // header row
-    const cols = [[90, 'RANK'], [260, 'PLAYER'], [980, 'SCORE'], [1200, 'WPM'], [1370, 'ACC']];
-    g.fillStyle = 'rgba(243,238,221,0.4)'; g.font = `700 22px ${FONT}`;
-    cols.forEach(([x, t]) => spaced(g, t, x, 460, 0.18, 'left'));
-    g.fillStyle = 'rgba(243,238,221,0.1)'; g.fillRect(90, 482, W - 180, 2);
-    // empty state, in a quiet dashed well where the rows will go
-    g.save();
-    roundRect(g, 90, 510, W - 180, 400, 24);
-    g.setLineDash([10, 10]); g.lineWidth = 2; g.strokeStyle = 'rgba(243,238,221,0.14)'; g.stroke();
-    g.restore();
+  // Built in idle time after start-up rather than on the first click: adding its
+  // lights recompiles the scene's shaders once, which would stall the turn itself.
+  (window.requestIdleCallback || (f => setTimeout(f, 1500)))(() => ensureChalkboard(), { timeout: 4000 });
+
+  function defaultLeaderboard(g, W, H, sec, chalk) {
+    const C = chalk.colours;
+    // the date, top right, as a teacher would
+    const d = new Date();
+    chalk.font('hand', 46);
+    g.textAlign = 'right';
+    chalk.text(d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }), W - 110, 105, C.dim);
+    // title
+    g.textAlign = 'left';
+    chalk.font('display', 128);
+    chalk.text('Global Leaderboards', 110, 215);
+    chalk.line(116, 248, 1180, 238, 6, C.yellow);
+    chalk.font('hand', 44);
+    chalk.text('every Commonsmade player, every game', 118, 312, C.dim);
+    // tabs: the current one circled
+    chalk.font('hand', 64);
+    chalk.text('KATA', 150, 425);
+    chalk.ring(212, 405, 100, 50, 5, C.pink);
+    chalk.text('All games', 372, 425, C.dim);
+    // the table header
+    const cols = [[130, 'Rank'], [330, 'Player'], [1240, 'Score'], [1520, 'WPM'], [1760, 'Acc']];
+    chalk.font('hand', 58);
+    for (const [x, t] of cols) chalk.text(t, x, 540);
+    chalk.line(120, 568, W - 120, 574, 5);
+    for (const [x] of cols.slice(1)) chalk.line(x - 34, 492, x - 32, 596, 3, 'rgba(236,236,226,0.3)');
+    // nothing to rank yet
     g.textAlign = 'center';
-    g.fillStyle = 'rgba(243,238,221,0.8)'; g.font = `700 48px ${FONT}`;
-    g.fillText('No runs yet', W / 2, 700);
-    g.fillStyle = 'rgba(243,238,221,0.45)'; g.font = `400 30px ${FONT}`;
-    g.fillText('Global competitions open soon.', W / 2, 752);
+    chalk.font('display', 92);
+    chalk.text('No runs yet', W / 2, 850);
+    chalk.font('hand', 52);
+    chalk.text('global competitions open soon', W / 2, 925, C.dim);
+    // a little trophy doodle
+    const tx = W / 2, ty = 690;
+    chalk.line(tx - 50, ty - 60, tx + 50, ty - 60, 5, C.yellow);
+    chalk.line(tx - 50, ty - 60, tx - 38, ty + 10, 5, C.yellow);
+    chalk.line(tx + 50, ty - 60, tx + 38, ty + 10, 5, C.yellow);
+    chalk.line(tx - 38, ty + 10, tx + 38, ty + 10, 5, C.yellow);
+    chalk.line(tx, ty + 10, tx, ty + 52, 5, C.yellow);
+    chalk.line(tx - 34, ty + 56, tx + 34, ty + 56, 6, C.yellow);
+    chalk.ring(tx - 64, ty - 36, 18, 22, 4, C.yellow);
+    chalk.ring(tx + 64, ty - 36, 18, 22, 4, C.yellow);
   }
 
   function paintLeaderboard(sec) {
-    const g = lbCanvas.getContext('2d');
-    try { (lbPainter || defaultLeaderboard)(g, LW, LH, sec); }
-    catch (e) { console.error('leaderboard painter:', e); defaultLeaderboard(g, LW, LH, sec); }
-    lbTex.needsUpdate = true;
+    if (!chalkboard) return;
+    chalkboard.paint((g, W, H, s, chalk) => {
+      try { (lbPainter || defaultLeaderboard)(g, W, H, s, chalk); }
+      catch (e) { console.error('leaderboard painter:', e); defaultLeaderboard(g, W, H, s, chalk); }
+    }, sec);
   }
 
-  const view = { name: 'home', from: null, to: null, t: 1, dur: 1.15, homeQ: new THREE.Quaternion(), turnQ: new THREE.Quaternion(), owns: false };
+  const view = { name: 'home', from: null, to: null, t: 1, dur: 1.2, homeQ: new THREE.Quaternion(), turnQ: new THREE.Quaternion(), owns: false };
   const _q = new THREE.Quaternion(), _v = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
 
   function setView(name) {
     if (name === view.name && view.t >= 1) return;
     if (name === 'leaderboard') {
+      const cb = ensureChalkboard();
       if (view.name === 'home' && view.t >= 1) {
         view.homeQ.copy(camera.quaternion);
-        // turn to the right, about the world up axis
-        _q.setFromAxisAngle(_up, -Math.PI / 2);
-        view.turnQ.copy(_q).multiply(camera.quaternion);
-        // stand the board where the turned camera will look
-        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-        right.y = 0; right.normalize();
+        // Turn right a quarter and level out, so the board is seen square-on
+        // like a wall in a classroom, not looked down at.
+        const fwd = _v.set(0, 0, -1).applyQuaternion(camera.quaternion);
+        const yaw = Math.atan2(-fwd.x, -fwd.z) - Math.PI / 2;
+        view.turnQ.setFromEuler(new THREE.Euler(0, yaw, 0, 'YXZ'));
+        const dir = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
         const dist = Math.max(6, camera.position.distanceTo(controls.target) * 0.85);
-        lbMesh.position.copy(camera.position).addScaledVector(right, dist);
-        lbMesh.position.y = camera.position.y + (new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).y) * dist * 0.2;
         const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
-        let h = 2 * dist * tanV * 0.74, w = h * (LW / LH);
-        const maxW = 2 * dist * tanV * camera.aspect * 0.8;
-        if (w > maxW) { w = maxW; h = w * (LH / LW); }
-        lbMesh.scale.set(w, h, 1);
-        lbMesh.lookAt(camera.position);
+        const visH = 2 * dist * tanV, visW = visH * camera.aspect;
+        const s = Math.min(visW * 0.86 / cb.size.width, visH * 0.84 / cb.size.height);
+        cb.group.scale.setScalar(s);
+        cb.group.position.copy(camera.position).addScaledVector(dir, dist);
+        cb.group.position.y = camera.position.y - cb.size.centreY * s;
+        cb.group.rotation.set(0, yaw, 0);
         paintLeaderboard(0);
       }
-      lbMesh.visible = true;
+      cb.group.visible = true;
+      cb.setLit(true);
     }
     // reversing mid-turn continues from where the camera is, it does not jump
     const k = view.from + (view.to - view.from) * easeInOut(view.t);
@@ -364,6 +370,17 @@ export function createLobby({ THREE, scene, camera, renderer, controls, ground }
     border-right:0;color:#F3EEDD;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
     pointer-events:auto;cursor:pointer;opacity:0;transition:opacity .35s ease,transform .25s ease,background .2s}
   .tmx-tab.on{opacity:1;transform:translate(0,-50%)}
+  .tmx-back{position:absolute;left:22px;top:50%;transform:translate(-14px,-50%);display:flex;flex-direction:column;
+    align-items:center;gap:8px;pointer-events:none;opacity:0;cursor:pointer;background:none;border:0;padding:0;
+    font-family:inherit;color:#F3EEDD;transition:opacity .35s ease,transform .35s ease}
+  .tmx-back.on{opacity:1;transform:translate(0,-50%);pointer-events:auto}
+  .tmx-back i{width:60px;height:60px;border-radius:50%;display:grid;place-items:center;background:rgba(12,15,22,.72);
+    border:1px solid rgba(243,238,221,.18);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    box-shadow:0 10px 30px rgba(0,0,0,.28);transition:transform .2s ease,background .2s ease}
+  .tmx-back:hover i{transform:translateX(-4px);background:rgba(22,27,38,.9)}
+  .tmx-back svg{width:26px;height:26px}
+  .tmx-back b{font-size:10px;font-weight:800;letter-spacing:.22em;padding:4px 8px;border-radius:999px;
+    background:rgba(12,15,22,.6);white-space:nowrap}
   .tmx-tab:hover{background:rgba(22,27,38,.86)}
   .tmx-tab svg{width:18px;height:18px;flex:none}
   .tmx-tab span{writing-mode:vertical-rl;transform:rotate(180deg);font-size:11px;font-weight:800;
@@ -378,6 +395,10 @@ export function createLobby({ THREE, scene, camera, renderer, controls, ground }
       <div class="tmx-who"><div class="tmx-name"></div><div class="tmx-handle"></div></div>
       <button class="tmx-out" type="button">SIGN OUT</button>
     </div>
+    <button class="tmx-back" type="button" aria-label="Back to the games">
+      <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></i>
+      <b>BACK</b>
+    </button>
     <div class="tmx-tab" role="button" tabindex="0" aria-label="Global leaderboards">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></svg>
       <span>GLOBAL LEADERBOARDS</span>
@@ -389,6 +410,8 @@ export function createLobby({ THREE, scene, camera, renderer, controls, ground }
   const badge = root.querySelector('.tmx-badge');
   const tab = root.querySelector('.tmx-tab');
   const tabText = tab.querySelector('span');
+  const backBtn = root.querySelector('.tmx-back');
+  backBtn.addEventListener('click', () => setView('home'));
   root.querySelector('.tmx-out').addEventListener('click', () => emit('signout'));
   const toggleView = () => setView(view.name === 'leaderboard' ? 'home' : 'leaderboard');
   tab.addEventListener('click', toggleView);
@@ -397,8 +420,12 @@ export function createLobby({ THREE, scene, camera, renderer, controls, ground }
   let user = null, suspended = false;
   function renderTabs() {
     badge.classList.toggle('on', !!user && !suspended);
-    tab.classList.toggle('on', !!user && !suspended);
-    tabText.textContent = view.name === 'leaderboard' ? 'BACK TO GAMES' : 'GLOBAL LEADERBOARDS';
+    // home: the leaderboards tab on the right. leaderboard: a back arrow on the
+    // left, pointing the way the camera turns to get back to the computer.
+    const onBoard = view.name === 'leaderboard';
+    tab.classList.toggle('on', !!user && !suspended && !onBoard);
+    backBtn.classList.toggle('on', !suspended && onBoard);
+    tabText.textContent = 'GLOBAL LEADERBOARDS';
   }
 
   // ---------------------------------------------------------------- pointer
@@ -606,10 +633,10 @@ export function createLobby({ THREE, scene, camera, renderer, controls, ground }
       const u = easeInOut(view.t);
       const k = view.from + (view.to - view.from) * u;
       camera.quaternion.slerpQuaternions(view.homeQ, view.turnQ, k);
-      if (view.name === 'leaderboard' && lbPainter && seconds - lbLastPaint > 0.25) { lbLastPaint = seconds; paintLeaderboard(seconds); }
+      if (view.name === 'leaderboard' && lbPainter && seconds - lbLastPaint > 0.5) { lbLastPaint = seconds; paintLeaderboard(seconds); }
       if (view.name === 'home' && view.t >= 1) {
         view.owns = false;
-        lbMesh.visible = false;
+        if (chalkboard) { chalkboard.group.visible = false; chalkboard.setLit(false); }
         camera.quaternion.copy(view.homeQ);
       }
     }
@@ -650,7 +677,9 @@ export function createLobby({ THREE, scene, camera, renderer, controls, ground }
     },
     view: setView,
     get currentView() { return view.name; },
-    setLeaderboardPainter(fn) { lbPainter = typeof fn === 'function' ? fn : null; if (lbMesh.visible) paintLeaderboard(seconds); },
+    // fn(ctx, W, H, seconds, chalk): draw in chalk colours (chalk.colours, chalk.font,
+    // chalk.line, chalk.ring, chalk.text); it is rendered as chalk on the slate
+    setLeaderboardPainter(fn) { lbPainter = typeof fn === 'function' ? fn : null; if (chalkboard && chalkboard.group.visible) paintLeaderboard(seconds); },
     on(ev, fn) { if (listeners[ev] && typeof fn === 'function') listeners[ev].push(fn); return api; },
     // while a game is running: nothing from the lobby is visible or clickable
     suspend(on) {
