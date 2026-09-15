@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>NOVA - local harness</title>
+<style>
+  html,body{margin:0;height:100%;background:#03030A;display:grid;place-items:center}
+  canvas{image-rendering:pixelated;width:960px;height:720px;outline:1px solid #1e2735}
+  #log{position:fixed;left:8px;bottom:6px;color:#4F7AA0;font:11px ui-monospace,monospace;white-space:pre}
+</style>
+<canvas id="c" width="320" height="240" tabindex="0"></canvas>
+<div id="log"></div>
+<script type="module">
+// Emulates what the TYPEMAXX engine hands a game: a 2D context at the pixel-grid
+// size, seconds, now, and an input object whose pull() gives one frame's keys.
+// ?show plays the select-screen showcase instead of the game.
+import NOVA from '../../games/nova.js';
+
+const cvs = document.getElementById('c');
+const g = cvs.getContext('2d');
+const SHOW = /[?&]show\b/.test(location.search);
+window.TYPEMAXX = { pixel: null };
+window.TYPEMAXX_SETGAME = () => { document.getElementById('log').textContent = 'exit requested'; };
+
+const INPUT = {
+  _pend: { chars: [], keys: [], back: 0, enter: 0 },
+  _cur: { chars: [], keys: [], back: 0, enter: 0 },
+  _rotate(){ this._cur = this._pend; this._pend = { chars: [], keys: [], back: 0, enter: 0 }; },
+  pull(){ return this._cur; },
+};
+addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey) return;
+  if (e.code === 'Backspace') INPUT._pend.back++;
+  else if (e.code === 'Enter') INPUT._pend.enter++;
+  else if (e.key && e.key.length === 1) INPUT._pend.chars.push(e.key);
+  INPUT._pend.keys.push(e.code);
+  if (['Space', 'ArrowUp', 'ArrowDown', 'Backspace'].includes(e.code)) e.preventDefault();
+});
+
+if (SHOW) { cvs.width = 960; cvs.height = 720; }
+else NOVA.enter();
+window.NOVA = NOVA;
+window.cap = async (name) => {
+  const big = document.createElement('canvas'); big.width = 960; big.height = 720;
+  const b = big.getContext('2d'); b.imageSmoothingEnabled = false; b.drawImage(cvs, 0, 0, 960, 720);
+  const r = await fetch('http://127.0.0.1:8766/' + name, { method: 'POST', body: big.toDataURL('image/png') });
+  return r.ok;
+};
+window.send = (chars, keys, back, enter) => {
+  const p = INPUT._pend;
+  for (const c of chars || []) p.chars.push(c);
+  for (const k of keys || []) p.keys.push(k);
+  p.back += back || 0; p.enter += enter || 0;
+};
+let synth = 0;
+window.step = (n, dtMs) => {
+  window.manual = true;
+  dtMs = dtMs || 1000 / 60;
+  for (let i = 0; i < n; i++) {
+    synth += dtMs;
+    INPUT._rotate();
+    NOVA.draw(g, 320, 240, synth / 1000, synth, INPUT);
+  }
+  return NOVA.state.mode;
+};
+// draw the showcase at a given time (seconds since the select screen opened)
+window.showAt = (t) => {
+  const W = cvs.width, H = cvs.height;
+  g.clearRect(0, 0, W, H);
+  NOVA.showcase.background(g, W, H, t, 0.45);
+  NOVA.showcase.logo(g, W / 2, H * 0.2, W * 0.42, t);
+  NOVA.showcase.icon(g, W * 0.06, H * 0.78, W * 0.1, t, true);
+};
+window.manual = false;
+let errs = 0, t0 = null;
+function tick(now){
+  requestAnimationFrame(tick);
+  if (window.manual) return;
+  try {
+    if (SHOW) { if (t0 == null) t0 = now; window.showAt((now - t0) / 1000); }
+    else { INPUT._rotate(); NOVA.draw(g, 320, 240, now / 1000, now, INPUT); }
+  } catch (e) { if (errs++ < 3) { console.error(e); document.getElementById('log').textContent = String(e.stack || e); } }
+}
+requestAnimationFrame(tick);
+cvs.focus();
+</script>

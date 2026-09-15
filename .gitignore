@@ -5,3 +5,4 @@ tools/flowart/ref/
 assets/flow/frames/
 __pycache__/
 *.pyc
+tools/novaart/ref/
