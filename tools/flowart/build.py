@@ -161,12 +161,23 @@ def build():
     for k, v in HD.clips().items():
         dv[k] = v
     ms.update({"kage_idle": 460, "kage_throw": 110, "kage_strike": 70, "kage_die": 110,
-               "archer_strike": 70, "ninja_throw": 80, "ninja_swing": 160, "ninja_catch": 90})
+               "archer_strike": 70, "ninja_throw": 80, "ninja_swing": 160, "ninja_catch": 90,
+               "ninja_climb": 110, "ninja_hang": 420, "ninja_mantle": 90, "ninja_glide": 150,
+               "kage_lean": 110, "archer_lean": 150})
     ms.update({"shuriken": 60, "spark": 50, "dust": 70, "lantern_pick": 180,
                "ninja_block": 120, "ninja_stumble": 110, "ninja_slide": 120,
                "ninja_victory": 300, "archer_idle": 460, "archer_draw": 150,
                "archer_loose": 120, "archer_die": 110})
-    clips = {k: (v, ms.get(k, 100)) for k, v in dv.items()}
+    # world variants (enemy_idle_snow, ninja_climb_castle...) keep their base clip's timing
+    WORLD_SUFFIX = ("_city", "_grove", "_snow", "_castle", "_harbour")
+    def timing(k):
+        if k in ms:
+            return ms[k]
+        for suf in WORLD_SUFFIX:
+            if k.endswith(suf) and k[:-len(suf)] in ms:
+                return ms[k[:-len(suf)]]
+        return 100
+    clips = {k: (v, timing(k)) for k, v in dv.items()}
 
     # Anchors are PER CLIP, from that clip's own frame size. Using one anchor
     # taken from the largest cell drew the 16x16 slash 39px above its target -

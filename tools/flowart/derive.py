@@ -229,10 +229,89 @@ def _torso_span(g, y, cx):
     return (a, b)
 
 
-def costume(g, scarf_phase, kind="ninja", blade=None, wet=False, bow=None, upright=False, star=False):
+def _c(v):
+    return C[v] if isinstance(v, str) else v
+
+
+def rgba(h):
+    h = h.lstrip('#')
+    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), 255)
+
+
+# Every world dresses its own enemies. Same bodies, same animation, same
+# behaviour in the game - only the costume changes, so a fighter still reads by
+# silhouette (ronin: hat, kage: bare head, archer: bow) wherever he stands.
+BIOMES = {
+    "grove": {
+        # a wandering komuso monk: basket hat over the whole head
+        "ronin": {"D": rgba('#2A2620'), "M": rgba('#4A4234'), "L": rgba('#6E6250'), "band": rgba('#6A5A2E'), "band2": rgba('#46381C'),
+                  "accent": rgba('#8A7A58'), "accent2": rgba('#5A4E36'), "scarf": False, "hat": "basket",
+                  "hat1": rgba('#A88E52'), "hat2": rgba('#6E5A30')},
+        # leaf-green shinobi with a yellow eye
+        "kage": {"D": rgba('#0C1A10'), "M": rgba('#1A3020'), "L": rgba('#3A5C34'), "band": rgba('#2E4A22'), "band2": rgba('#1C3016'),
+                 "accent": rgba('#24401E'), "accent2": rgba('#16280F'), "scarf": False, "hat": False, "eye": rgba('#E8D84A')},
+        # a hunter in a straw hood
+        "archer": {"D": rgba('#241C12'), "M": rgba('#3E3220'), "L": rgba('#5E4C30'), "band": rgba('#4E6A2A'), "band2": rgba('#324618'),
+                   "accent": rgba('#8C7A50'), "accent2": rgba('#5A4C30'), "scarf": False, "hat": False, "hood": True,
+                   "hoodc": rgba('#9C8448'), "eye": rgba('#E8D84A')},
+    },
+    "snow": {
+        # a yamabushi: white robe, orange tassels, the small black tokin cap
+        "ronin": {"D": rgba('#8A94A8'), "M": rgba('#C8D0DC'), "L": rgba('#EEF2F8'), "band": rgba('#E8782C'), "band2": rgba('#A8501C'),
+                  "accent": rgba('#E8782C'), "accent2": rgba('#A8501C'), "scarf": False, "hat": "tokin",
+                  "hat1": rgba('#101014'), "hat2": rgba('#2A2A32')},
+        # snow-white shinobi with an ice-blue eye
+        "kage": {"D": rgba('#7888A0'), "M": rgba('#B8C4D4'), "L": rgba('#E4ECF4'), "band": rgba('#8A98B0'), "band2": rgba('#6A7890'),
+                 "accent": rgba('#9AA8BE'), "accent2": rgba('#6A7890'), "scarf": False, "hat": False, "eye": rgba('#48B8F0')},
+        # a fur-hooded archer
+        "archer": {"D": rgba('#3A2E24'), "M": rgba('#5E4C3A'), "L": rgba('#86705A'), "band": rgba('#2A4A6A'), "band2": rgba('#1A3048'),
+                   "accent": rgba('#B8A488'), "accent2": rgba('#7A6852'), "scarf": False, "hat": False, "hood": True,
+                   "hoodc": rgba('#D8CCB8'), "eye": rgba('#48B8F0')},
+    },
+    "castle": {
+        # an armoured samurai: red lacquer, a horned kabuto
+        "ronin": {"D": rgba('#3A0C10'), "M": rgba('#7A1A20'), "L": rgba('#B03030'), "band": rgba('#1A1A20'), "band2": rgba('#0C0C10'),
+                  "accent": rgba('#C8A040'), "accent2": rgba('#8A6A22'), "scarf": False, "hat": "kabuto",
+                  "hat1": rgba('#1E1E26'), "hat2": rgba('#E8B040')},
+        # a castle shinobi in deep purple
+        "kage": {"D": rgba('#14081C'), "M": rgba('#2A1438'), "L": rgba('#4A2A64'), "band": rgba('#3A2050'), "band2": rgba('#221234'),
+                 "accent": rgba('#301A44'), "accent2": rgba('#1E0E2C'), "scarf": False, "hat": False, "eye": rgba('#F4B93D')},
+        # an ashigaru in blue armour under a flat lacquered jingasa
+        "archer": {"D": rgba('#0E1628'), "M": rgba('#1C2C4A'), "L": rgba('#34507A'), "band": rgba('#A83A2A'), "band2": rgba('#6E2218'),
+                   "accent": rgba('#C8B890'), "accent2": rgba('#8A7C5A'), "scarf": False, "hat": "jingasa",
+                   "hat1": rgba('#101016'), "hat2": rgba('#E8B040')},
+    },
+    "harbour": {
+        # a wako captain: indigo coat over a striped shirt, a red hachimaki
+        "ronin": {"D": rgba('#101830'), "M": rgba('#1E2C50'), "L": rgba('#34487A'), "band": rgba('#C0242C'), "band2": rgba('#8A181E'),
+                  "accent": rgba('#B99C78'), "accent2": rgba('#8A7458'), "scarf": False, "hat": False, "stripes": rgba('#D8D0C0')},
+        # a pirate shinobi in a striped head-scarf
+        "kage": {"D": rgba('#0A0E1C'), "M": rgba('#16203A'), "L": rgba('#2E3E62'), "band": rgba('#D8D0C0'), "band2": rgba('#3A5A8A'),
+                 "accent": rgba('#1E2A48'), "accent2": rgba('#121A30'), "scarf": False, "hat": False, "eye": rgba('#E8783A')},
+        # a sailor archer: tan clothes, blue bandana, striped shirt
+        "archer": {"D": rgba('#3A2C1C'), "M": rgba('#6A5234'), "L": rgba('#96784E'), "band": rgba('#2A5A9A'), "band2": rgba('#1A3A6A'),
+                   "accent": rgba('#B99C78'), "accent2": rgba('#8A7458'), "scarf": False, "hat": False, "hood": False,
+                   "stripes": rgba('#D8C8A8')},
+    },
+}
+
+HATS = {
+    "kasa": [".....KKK.....", "...KKhhhKK...", "..KhhhhhhhK..", ".KhhhhhhhhhK.", "KHHHHHHHHHHHK", ".KKKKKKKKKKK."],
+    "basket": ["..KKKKKKK..", ".KhHhHhHhK.", ".KHhHhHhHK.", ".KhHhHhHhK.", ".KHhHhHhHK.", ".KhHhHhHhK.", ".KHhHhHhHK.", "..KKKKKKK.."],
+    "tokin": ["...KK...", "..KhhK..", ".KhhhhK.", "..KKKK.."],
+    "kabuto": ["H.......H", "HH.....HH", ".HHKKKHH.", "..KhhhK..", ".KhhhhhK.", "KhhhhhhhK", "KKKKKKKKK"],
+    "jingasa": ["....KK....", "..KhhhhK..", "KhhhHhhhhK", "KKKKKKKKKK"],
+}
+# where each hat sits relative to the crown
+HAT_DY = {"kasa": -2, "basket": -1, "tokin": -3, "kabuto": -5, "jingasa": -3}
+
+
+def costume(g, scarf_phase, kind="ninja", blade=None, wet=False, bow=None, upright=False, star=False,
+            scarf_hang=False, gear=None):
     """Paint a character over correct anatomy. Everything is placed by body
-    proportion, so it follows the pose instead of being pinned to a cell."""
-    K = KINDS[kind]
+    proportion, so it follows the pose instead of being pinned to a cell.
+    `kind` is a name in KINDS or a costume dict (see BIOMES)."""
+    K = kind if isinstance(kind, dict) else KINDS[kind]
     top, bot = _body_rows(g)
     if upright:
         # arms raised above the head: the first solid row is a hand, not the
@@ -252,7 +331,7 @@ def costume(g, scarf_phase, kind="ninja", blade=None, wet=False, bow=None, uprig
     for y in range(top, head_bot + 1):
         for x in range(g.w):
             if g.solid(x, y):
-                g.put(x, y, C[K["M"] if y <= band_y else K["D"]])
+                g.put(x, y, _c(K["M"] if y <= band_y else K["D"]))
 
     # --- headband, or the hat brim line for the ronin
     if not K["hat"]:
@@ -262,7 +341,7 @@ def costume(g, scarf_phase, kind="ninja", blade=None, wet=False, bow=None, uprig
             sp = _torso_span(g, y, hcx) if upright else _row_span(g, y)
             if sp:
                 for x in range(sp[0], sp[1] + 1):
-                    g.put(x, y, C[K["band"] if y == band_y else K["band2"]])
+                    g.put(x, y, _c(K["band"] if y == band_y else K["band2"]))
 
     # --- face band and eye, on the leading half of the head
     hs2 = _row_span(g, head_bot)
@@ -274,9 +353,9 @@ def costume(g, scarf_phase, kind="ninja", blade=None, wet=False, bow=None, uprig
         a, b = sp
         mid = (a + b) // 2
         for x in range(mid, b + 1):
-            g.put(x, y, C[K["accent"]] if not K["hat"] else C["F"])
+            g.put(x, y, _c(K["accent"]) if not K["hat"] else C["F"])
         if y == eye_y + 1:
-            g.put(b - 1, y, C[K.get("eye", "K")])
+            g.put(b - 1, y, _c(K.get("eye", "K")))
 
     # --- obi / sash, torso only
     cx = sum(_row_span(g, band_y) or (g.w // 2, g.w // 2)) / 2
@@ -284,17 +363,25 @@ def costume(g, scarf_phase, kind="ninja", blade=None, wet=False, bow=None, uprig
         sp = _torso_span(g, y, cx)
         if sp:
             for x in range(sp[0], sp[1] + 1):
-                g.put(x, y, C[K["band"] if y == waist else K["band2"]])
+                g.put(x, y, _c(K["band"] if y == waist else K["band2"]))
+
+    # --- stripes across the chest, for sailors
+    if K.get("stripes"):
+        for y in range(band_y + 5, waist - 1, 2):
+            sp = _torso_span(g, y, cx)
+            if sp:
+                for x in range(sp[0] + 1, sp[1]):
+                    g.put(x, y, _c(K["stripes"]))
 
     # --- shin wraps and feet
     for y in range(ankle - 3, ankle - 1):
         for x in range(g.w):
             if g.solid(x, y):
-                g.put(x, y, C[K["accent"]])
+                g.put(x, y, _c(K["accent"]))
     for y in range(ankle, bot + 1):
         for x in range(g.w):
             if g.solid(x, y):
-                g.put(x, y, C["K"] if y >= bot - 1 else C[K["D"]])
+                g.put(x, y, C["K"] if y >= bot - 1 else _c(K["D"]))
 
     # --- forearm wraps
     for y in range(elbow, elbow + 2):
@@ -305,18 +392,21 @@ def costume(g, scarf_phase, kind="ninja", blade=None, wet=False, bow=None, uprig
         for x in list(range(a, min(a + 2, b + 1))) + \
                  list(range(max(b - 1, a), b + 1)):
             if g.solid(x, y):
-                g.put(x, y, C[K["accent"]])
+                g.put(x, y, _c(K["accent"]))
 
     # --- the hat sits over everything on the head
     if K["hat"]:
-        sp = _row_span(g, band_y)
+        sp = _torso_span(g, band_y, hcx2) if upright else _row_span(g, band_y)
         if sp:
-            hx = (sp[0] + sp[1]) // 2 - len(HAT[0]) // 2
-            hy = top - 2
-            for j, row in enumerate(HAT):
+            hname = "kasa" if K["hat"] is True else K["hat"]
+            art = HATS[hname]
+            legend = {"K": C["K"], "h": _c(K.get("hat1", "HT")), "H": _c(K.get("hat2", "HT2"))}
+            hx = (sp[0] + sp[1]) // 2 - len(art[0]) // 2
+            hy = top + HAT_DY[hname]
+            for j, row in enumerate(art):
                 for i, ch in enumerate(row):
                     if ch != ".":
-                        g.put(hx + i, hy + j, C[HAT_LEGEND[ch]])
+                        g.put(hx + i, hy + j, legend[ch])
 
     # --- scarf, streaming behind the neck
     if K["scarf"]:
@@ -329,8 +419,13 @@ def costume(g, scarf_phase, kind="ninja", blade=None, wet=False, bow=None, uprig
             for i in range(0, 10):
                 t = i / 9.0
                 pts.append((px, py))
-                px -= 1.45
-                py += math.sin(scarf_phase + t * 4.0) * (0.9 + t * 1.6) * 0.55 - 0.28
+                if scarf_hang:
+                    # hanging off a wall: the scarf falls and sways
+                    py += 1.3
+                    px += math.sin(scarf_phase + t * 3.0) * (0.3 + t * 0.9) * 0.7 - 0.35
+                else:
+                    px -= 1.45
+                    py += math.sin(scarf_phase + t * 4.0) * (0.9 + t * 1.6) * 0.55 - 0.28
             for i in range(len(pts) - 1):
                 x0, y0 = pts[i]
                 x1, y1 = pts[i + 1]
@@ -379,7 +474,7 @@ def costume(g, scarf_phase, kind="ninja", blade=None, wet=False, bow=None, uprig
             sp = _torso_span(g, y, hcx2) if upright else _row_span(g, y)
             if sp:
                 for x in range(sp[0] - (1 if y > top + 1 else 0), sp[1] + 1):
-                    g.put(x, y, C[K["D"]])
+                    g.put(x, y, _c(K.get("hoodc", K["D"])))
 
     # --- the bow, held in the leading hand. 'rest' is slack, 'draw' pulls the
     # string back to the other hand, which is what telegraphs the shot.
@@ -403,6 +498,50 @@ def costume(g, scarf_phase, kind="ninja", blade=None, wet=False, bow=None, uprig
                 for i in range(0, 12):
                     g.put(hx - 8 + i, hy, C["AW"] if i < 10 else C["S"])
 
+    # --- climbing gear: what the ninja grips the wall with in each world
+    if gear:
+        hands = []
+        for y in range(top - 4, top + 6):
+            xs = [x for x in range(g.w) if g.solid(x, y)]
+            if xs:
+                hands.append((xs[-1], y))
+        hands = hands[:3]
+        STEEL, STEEL2 = C["S"], (0x6A, 0x70, 0x80, 255)
+        TAN, TAN2 = (0xB8, 0x98, 0x68, 255), (0x7A, 0x60, 0x3C, 255)
+        if hands:
+            hx, hy = max(hands)
+            if gear == "claws":           # tekagi, steel hooks over the knuckles
+                for dx, dy in ((0, -2), (1, -3), (2, -2), (-1, -1), (1, -1)):
+                    g.put(hx + dx, hy + dy, STEEL)
+            elif gear == "picks":         # ice picks, and a fur cloak on the shoulders
+                for i in range(5):
+                    g.put(hx + 1 + i // 2, hy - i, STEEL if i else C["R"])
+                g.put(hx + 3, hy - 4, STEEL2)
+                for y in (band_y + 3, band_y + 4):
+                    sp = _torso_span(g, y, hcx2)
+                    if sp:
+                        for x in range(sp[0], sp[1] + 1):
+                            if (x + y) % 3:
+                                g.put(x, y, C["W"])
+            elif gear == "kunai":         # kunai driven into the plaster
+                for i in range(1, 5):
+                    g.put(hx + i, hy + 1, STEEL if i < 4 else STEEL2)
+                g.put(hx, hy + 1, C["H"])
+                g.put(hx - 3, bot - 12, STEEL); g.put(hx - 2, bot - 12, STEEL)
+            elif gear == "rope":          # hand over hand up a rope line
+                for y in range(0, g.h):
+                    if not g.solid(hx + 1, y):
+                        g.put(hx + 1, y, TAN if y % 3 else TAN2)
+            elif gear == "pole":          # a bamboo pole, and a rope coil on the back
+                for y in range(0, g.h):
+                    if not g.solid(hx + 2, y):
+                        g.put(hx + 2, y, (0x5E, 0x74, 0x30, 255) if y % 9 else (0xA8, 0xC0, 0x60, 255))
+                        g.put(hx + 3, y, (0x3A, 0x4A, 0x22, 255))
+                sp = _torso_span(g, band_y + 6, hcx2)
+                if sp:
+                    for dx, dy in ((-1, 0), (-2, 1), (-2, 2), (-1, 3), (0, 1), (0, 2)):
+                        g.put(sp[0] + dx, band_y + 6 + dy, TAN)
+
     # --- a shuriken held at the leading hand, for the throw wind-up
     if star:
         hand = None
@@ -419,21 +558,60 @@ def costume(g, scarf_phase, kind="ninja", blade=None, wet=False, bow=None, uprig
     return g
 
 
+def _torso_x(img, y):
+    """Centre of the widest solid run on a row of a base cell: the torso."""
+    px = img.load()
+    runs, start = [], None
+    for x in range(img.width + 1):
+        on = x < img.width and px[x, y][3] > 110
+        if on and start is None:
+            start = x
+        if not on and start is not None:
+            runs.append((start, x - 1)); start = None
+    if not runs:
+        return img.width / 2.0
+    a, b = max(runs, key=lambda r: r[1] - r[0])
+    return (a + b) / 2.0
+
+
+def composite(sheet, upper, lower, lean=0, waist=34):
+    """A pose the base sheet does not have: the upper body of one frame over the
+    legs of another, joined at the waist and aligned on the torso. `lean` shifts
+    the chest toward the wall, so a climber hugs the building."""
+    up, lo = _cell(sheet, upper), _cell(sheet, lower)
+    ux, lx = _torso_x(up, waist - 2), _torso_x(lo, waist + 2)
+    out = Image.new("RGBA", (CELL, CELL), (0, 0, 0, 0))
+    dx = int(round(ux - lx))
+    for y in range(CELL):
+        if y < waist:
+            shift = int(round(lean * (waist - y) / float(waist)))
+            for x in range(CELL):
+                p = up.getpixel((x, y))
+                if p[3] > 0 and 0 <= x + shift < CELL:
+                    out.putpixel((x + shift, y), p)
+        else:
+            for x in range(CELL):
+                p = lo.getpixel((x, y))
+                if p[3] > 0 and 0 <= x + dx < CELL:
+                    out.putpixel((x + dx, y), p)
+    return out
+
+
 def frame(sheet, idx, scarf_phase, kind="ninja", flip=False, blade=None,
-          wet=False, bow=None, upright=False, star=False):
-    small, _ = _shrink(_cell(sheet, idx))
+          wet=False, bow=None, upright=False, star=False, scarf_hang=False, img=None, gear=None):
+    small, _ = _shrink(img if img is not None else _cell(sheet, idx))
     if small is None:
         return None
     g = Grid(OUT_W, OUT_H)
-    K = KINDS[kind]
+    K = kind if isinstance(kind, dict) else KINDS[kind]
     ox = (OUT_W - small.width) // 2
     oy = OUT_H - 2 - small.height
     for y in range(small.height):
         for x in range(small.width):
             t = _tone(small.getpixel((x, y)))
             if t:
-                g.put(x + ox, y + oy, C[K[t]])
-    costume(g, scarf_phase, kind, blade, wet, bow, upright, star)
+                g.put(x + ox, y + oy, _c(K[t]))
+    costume(g, scarf_phase, kind, blade, wet, bow, upright, star, scarf_hang, gear)
     if flip:
         f = Grid(g.w, g.h)
         for y in range(g.h):
@@ -612,6 +790,44 @@ def clips():
     out["ninja_throw"] = [frame(sheet, i, n * 0.8, upright=(n == 2)) for n, i in enumerate(THROW)]
     out["ninja_swing"] = [frame(sheet, i, n * 1.6, upright=True) for n, i in enumerate(CHEER)]
     out["ninja_catch"] = [frame(sheet, i, n * 0.8, star=True, upright=(n == 1)) for n, i in enumerate([24, 25])]
+
+    # ---- climbing a building: composites, hugging the wall on the right
+    CLIMB = [(26, 44, 3), (27, 16, 2), (25, 43, 3), (27, 17, 2)]
+    out["ninja_climb"] = [frame(sheet, 0, n * 1.2, upright=True, scarf_hang=True, img=composite(sheet, u, l, lean))
+                          for n, (u, l, lean) in enumerate(CLIMB)]
+    out["ninja_hang"] = [frame(sheet, 0, n * 1.5, upright=True, scarf_hang=True, img=composite(sheet, 26, 17, 2))
+                         for n in range(2)]
+    out["ninja_mantle"] = [frame(sheet, 0, 0.5, upright=True, scarf_hang=True, img=composite(sheet, 26, 41, 5)),
+                           frame(sheet, 41, 1.0), frame(sheet, 40, 1.4), frame(sheet, 0, 1.8)]
+    out["ninja_glide"] = [frame(sheet, i, n * 0.9) for n, i in enumerate((46, 45))]
+    out["kage_lean"] = [frame(sheet, i, 0, "kage", flip=True, star=(n < 2), upright=(n == 2))
+                        for n, i in enumerate(THROW)]
+    out["archer_lean"] = [frame(sheet, i, 0, "archer", flip=True, bow=("draw" if n else "rest"))
+                          for n, i in enumerate(SHOOT[:2])]
+
+    # ---- every world climbs its own way
+    for wk, gear in (("city", "claws"), ("grove", "pole"), ("snow", "picks"), ("castle", "kunai"), ("harbour", "rope")):
+        out["ninja_climb_" + wk] = [frame(sheet, 0, n * 1.2, upright=True, scarf_hang=True, gear=gear,
+                                          img=composite(sheet, u, l, lean)) for n, (u, l, lean) in enumerate(CLIMB)]
+        out["ninja_hang_" + wk] = [frame(sheet, 0, n * 1.5, upright=True, scarf_hang=True, gear=gear,
+                                         img=composite(sheet, 26, 17, 2)) for n in range(2)]
+
+    # ---- and dresses its own enemies: same frames, same timing, new costumes
+    for wk, B in BIOMES.items():
+        ro, kg, ar = B["ronin"], B["kage"], B["archer"]
+        out["enemy_idle_" + wk] = [frame(sheet, i, 0, ro, flip=True) for i in STANCE]
+        out["enemy_wind_" + wk] = [frame(sheet, i, 0, ro, flip=True, blade=a) for i, a in zip(SWING[:2], (64, 40))]
+        out["enemy_strike_" + wk] = [frame(sheet, i, 0, ro, flip=True, blade=a) for i, a in zip(SWING[2:], (-6, -40))]
+        out["enemy_die_" + wk] = [frame(sheet, i, 0, ro, flip=True) for i in DIE]
+        out["kage_idle_" + wk] = [frame(sheet, i, 0, kg, flip=True) for i in STANCE]
+        out["kage_throw_" + wk] = [frame(sheet, i, 0, kg, flip=True, star=(n < 2), upright=(n == 2)) for n, i in enumerate(THROW)]
+        out["kage_strike_" + wk] = [frame(sheet, i, 0, kg, flip=True, blade=a) for i, a in zip(SWING[1:3], (40, -10))]
+        out["kage_die_" + wk] = [frame(sheet, i, 0, kg, flip=True) for i in DIE]
+        out["archer_idle_" + wk] = [frame(sheet, i, 0, ar, flip=True, bow="rest") for i in STANCE]
+        out["archer_draw_" + wk] = [frame(sheet, i, 0, ar, flip=True, bow="draw") for i in SHOOT[:3]]
+        out["archer_loose_" + wk] = [frame(sheet, SHOOT[3], 0, ar, flip=True, bow="rest")]
+        out["archer_die_" + wk] = [frame(sheet, i, 0, ar, flip=True) for i in DIE]
+        out["archer_strike_" + wk] = [frame(sheet, i, 0, ar, flip=True, blade=a, upright=True) for i, a in zip(SWING[1:3], (40, -10))]
 
     out["slash"] = slash_frames()
     out["blood_spray"] = blood_spray()

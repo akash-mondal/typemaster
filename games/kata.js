@@ -343,6 +343,12 @@ function putScaled(name, i, cx, cy, s) {
   ctx().drawImage(S.img, f[0], f[1], f[2], f[3],
     Math.round(cx - f[2] * s / 2), Math.round(cy - f[3] * s / 2), f[2] * s, f[3] * s);
 }
+// every world dresses its own enemies and climbs its own way: 'kage_idle' in
+// the snow is 'kage_idle_snow'. Falls back to the base clip.
+function vclip(base, wk) {
+  const n = base + '_' + wk;
+  return wk && S.M.clips[n] ? n : base;
+}
 function frameOf(name, sec) {
   const c = S.M.clips[name];
   return c ? Math.floor(sec * 1000 / c.ms) : 0;
@@ -728,7 +734,10 @@ function makeOpt(textStr, x, lane, rnd, wk, type, jitter) {
 function bobOf(o) { return o.type === 'boat' ? Math.round(Math.sin(S.t * 1.7 + o.seed) * 2) : 0; }
 function footY(o) { return o.ry + bobOf(o) - 2; }
 function charX(o, i) { return o.x + PADX + i * ADV; }
-function enemyX(o) { return charX(o, o.len) + 16; }
+function enemyX(o) {
+  if (o.tower) return towerWindowX(o.tower, S.R && S.R.vert && S.R.vert.side === 'right' ? 'left' : 'right') + 9;
+  return charX(o, o.len) + 16;
+}
 
 function addGuard(opt) {
   let best = null;
@@ -816,7 +825,7 @@ function newRun() {
     menu: null, slam: null, fx: [], flying: [], dead: null, banner: null,
     kills: 0, parries: 0, dodges: 0, catches: 0, powers: 0, lanterns: 0, grapples: 0,
     snuffed: 0, cleanRoofs: 0, roofs: 0, breaks: 0, cleared: 0, worldLog: [],
-    trail: [], lastLandT: -9,
+    trail: [], lastLandT: -9, climbY: 0, camY: 0, vert: null, towerBanner: null, lastTower: -9,
   };
   const R = S.R;
   ensureRoad();
@@ -945,6 +954,13 @@ function genSegment(wk, seg) {
       if (o.power && o.enemy && o.power.start <= o.enemy.at && o.power.end >= o.enemy.at) o.power = null;
     }
   }
+  // a tower closes the world, from stage 3 on
+  const dT = diffAt(R.slots.length);
+  if (seg > 0 && dT >= 0.1 && seg - R.lastTower >= 2 && rnd() < lerp(0.45, 0.7, dT)) {
+    const T = genTower(wk, seg, x + 6, lane);
+    R.lastTower = seg;
+    x = T.x + T.w + 64;
+  }
   R.nextX = x;
   R.lane = lane;
 }
@@ -987,7 +1003,7 @@ function setTier() {
   const R = S.R;
   let t = 0;
   for (let i = 0; i < TIERS.length; i++) if (R.combo >= TIERS[i]) t = i;
-  if (t > R.tier) embers(R.drawX, footY(hereOpt()) - 18, 14, COL.gold, 30);
+  if (t > R.tier) embers(R.drawX, ninjaY() - 18, 14, COL.gold, 30);
   R.tier = t;
 }
 function goodKey() {
@@ -1013,7 +1029,7 @@ function die(cause) {
   R.end = S.t;
   R.anim = null;
   shake(3); flash('rgba(200,30,40,0.55)', 0.35);
-  addFx('blood_spray', R.drawX + 2, (R.jump || R.grap ? R.jumpY : footY(hereOpt())) - 18);
+  addFx('blood_spray', R.drawX + 2, ninjaY() - 18);
 }
 
 // every blow that lands goes through here
@@ -1021,12 +1037,12 @@ function loseHeart(cause, n) {
   const R = S.R;
   if (R.dead) return;
   const o = hereOpt();
-  if (R.shadowT > 0) { embers(R.drawX, footY(o) - 18, 8, COL.sky, 10); return; }
+  if (R.shadowT > 0) { embers(R.drawX, ninjaY() - 18, 8, COL.sky, 10); return; }
   R.hearts -= n || 1;
   R.anim = { clip: 'ninja_stumble', t0: S.t, dur: 0.42 };
   shake(3);
   flash('rgba(224,40,50,0.35)', 0.22);
-  addFx('blood_spray', R.drawX + 2, footY(o) - 18);
+  addFx('blood_spray', R.drawX + 2, ninjaY() - 18);
   if (R.hearts <= 0) die(cause);
 }
 
@@ -1043,8 +1059,8 @@ function crack(o) {
     o.holes.push(Math.round(R.drawX - o.x));
     R.breaks++;
     R.stunT = 0.45;
-    addFx('dust', R.drawX, footY(o) + 1);
-    embers(R.drawX, footY(o), 10, COL.shade, 4);
+    addFx('dust', R.drawX, ninjaY() + 1);
+    embers(R.drawX, ninjaY(), 10, COL.shade, 4);
     loseHeart('FELL THROUGH', 1);
   }
 }
@@ -1060,7 +1076,7 @@ function advance(from, to, how) {
     R.stageBanner = { stage: st, t0: S.t };
     R.score += 500 * st;
     flash('rgba(244,185,61,0.3)', 0.35);
-    embers(R.drawX, footY(from) - 20, 18, COL.gold, 34);
+    embers(R.drawX, ninjaY() - 20, 18, COL.gold, 34);
   }
   if (R.worldLog.length) R.worldLog[R.worldLog.length - 1].roofs++;
   if (!from.errs && !from.cracks && !from.holes.length) { R.cleanRoofs++; R.score += 150; }
@@ -1071,6 +1087,19 @@ function advance(from, to, how) {
   ensureRoad();
   const slot = R.slots[R.si];
   if (slot.seg > R.seg) enterWorld(slot);
+  if (from.reward) {
+    if (from.reward === 'heart') { R.hearts = Math.min(R.maxHearts, R.hearts + 1); R.lanterns++; }
+    else R.segs = Math.min(4, R.segs + 1);
+    embers(R.drawX, ninjaY() - 20, 14, from.reward === 'heart' ? COL.lamp : COL.gold, 24);
+  }
+  const T = slot.tower;
+  if (T || from.tower) {
+    R.pending = slot.kind === 'fork';
+    R.choice = R.pending ? -1 : 0;
+    if (T && !from.tower) enterTower(T, from);      // the road turns upward
+    else if (!T && from.tower) leaveTower(from);    // over the top
+    return;
+  }
   if (slot.kind === 'fork') {
     R.pending = true;
     R.choice = -1;
@@ -1092,9 +1121,10 @@ function enterWorld(slot) {
     R.score += 3000 * R.cleared;
     R.banner = { wk: slot.world, t0: S.t, cleared: R.cleared };
     flash('rgba(255,243,208,0.4)', 0.5);
-    embers(R.drawX, footY(hereOpt()) - 20, 30, COL.gold, 40);
+    embers(R.drawX, ninjaY() - 20, 30, COL.gold, 40);
   } else {
-    R.banner = { wk: slot.world, t0: S.t };
+    // coming off a tower, the new world is named once he lands
+    R.banner = { wk: slot.world, t0: S.t + (R.vert ? 1.9 : 0) };
   }
 }
 
@@ -1103,10 +1133,12 @@ function startJump(toOpt) {
   const from = R.fromOpt;
   const x1 = charX(toOpt, 0) + ADV / 2;
   const up = footY(from) - footY(toOpt);
+  const y0 = ninjaY();
   R.jump = {
     t: 0, dur: 0.42 + Math.abs(up) * 0.002 + Math.max(0, x1 - R.drawX - 60) * 0.002,
-    x0: R.drawX, x1, y0: footY(from), to: toOpt, h: 22 + Math.max(0, up) * 0.6,
+    x0: R.drawX, x1, y0, to: toOpt, h: 22 + Math.max(0, up) * 0.6,
   };
+  R.jumpY = y0;
 }
 
 function completeLine() {
@@ -1115,7 +1147,7 @@ function completeLine() {
   if (!opt || R.duel || R.grap || R.hazard || R.enc) return;
   const e = opt.enemy;
   if (e && e.state !== 'dead' && e.state !== 'dying') { startDuel(opt); return; }
-  if (opt.grapple && !opt.grapple.done) { startGrapple(opt); return; }
+  if (opt.grapple && !opt.grapple.done) { if (opt.tower) startGrappleV(opt); else startGrapple(opt); return; }
   const next = R.slots[R.si + 1];
   if (!next) ensureRoad();
   advance(opt, null, 'jump');
@@ -1129,6 +1161,12 @@ function chooseFork(ch) {
   if (idx < 0) { mistake(); flash('rgba(224,72,78,0.18)', 0.12); return false; }
   R.pending = false;
   R.choice = idx;
+  if (slot.tower) {
+    // up the other corner: shimmy across the face
+    const side = slot.opts[idx].side, V = R.vert;
+    if (V && side !== V.side) { V.shimmy = { x0: R.drawX, x1: climbX(slot.tower, side), t0: S.t }; V.side = side; }
+    return true;
+  }
   slot.opts[1 - idx].crumble = S.t;
   startJump(slot.opts[idx]);
   return true;
@@ -1136,6 +1174,7 @@ function chooseFork(ch) {
 
 function typeChar(ch) {
   const R = S.R;
+  if (R.vert && (R.vert.phase === 'summit' || R.vert.phase === 'dive')) return;
   if (R.pending) { if (chooseFork(ch)) typeChar(ch); return; }
   const opt = curOpt();
   if (!opt || R.ci >= opt.len || R.stunT > 0) return;
@@ -1276,7 +1315,7 @@ function startHazard(opt, hz) {
   R.hazard = hz;
   if (hz.owner) { hz.owner.state = 'attacking'; hz.owner.hidden = false; }
   hz.sx = enemyX(opt);
-  hz.sy = footY(opt) - 22;
+  hz.sy = enemyFootY(opt) - 22;
 }
 
 function hazardChar(ch) {
@@ -1308,17 +1347,17 @@ function resolveHazard(res) {
   hz.doneT = S.t;
   R.hazard = null;
   const o = hz.opt, e = hz.owner;
-  const nx = R.drawX, fy = footY(o);
+  const nx = R.drawX, fy = ninjaY();
   if (e && e.state === 'attacking') e.state = 'alive';
   if (res === true) {
     if (hz.kind === 'arrow') {
       R.anim = { clip: 'ninja_block', t0: S.t, dur: 0.34 };
       addFx('spark', nx + 10, fy - 22);
     } else if (hz.kind === 'icicle') {
-      R.anim = { clip: 'ninja_slide', t0: S.t, dur: 0.5 };
+      R.anim = { clip: o.tower ? vclip('ninja_hang', o.world) : 'ninja_slide', t0: S.t, dur: 0.5 };
       embers(nx + 6, fy - 2, 10, COL.ice, 20);
     } else {
-      R.anim = { clip: 'ninja_slide', t0: S.t, dur: 0.5 };
+      R.anim = { clip: o.tower ? vclip('ninja_hang', o.world) : 'ninja_slide', t0: S.t, dur: 0.5 };
       addFx('dust', nx, fy + 1);
     }
     R.dodges++;
@@ -1369,7 +1408,7 @@ function startDuel(opt) {
   };
   e.state = 'dueling';
   e.hidden = false;
-  R.targetX = enemyX(opt) - 24;
+  if (!opt.tower) R.targetX = enemyX(opt) - 24;
 }
 
 function duelChar(ch) {
@@ -1393,12 +1432,12 @@ function duelChar(ch) {
 function updateDuel(ddt) {
   const R = S.R, d = R.duel;
   if (!d || R.dead) return;
-  const ex = enemyX(d.opt), fy = footY(d.opt);
+  const ex = enemyX(d.opt), fy = enemyFootY(d.opt);
   if (d.phase === 'type') {
     d.t += ddt;
     if (d.t >= d.T) {
       d.phase = 'hit'; d.t0 = S.t;
-      addFx('slash', R.drawX + 8, fy - 20);
+      addFx('slash', R.drawX + 8, ninjaY() - 20);
       loseHeart('CUT DOWN', R.D.hitCost);
     }
   } else if (d.phase === 'hit') {
@@ -1450,7 +1489,7 @@ function grapChar(ch) {
     goodKey();
     if (gp.typed === gp.word) {
       gp.phase = 'throw'; gp.t0 = S.t;
-      R.drawX = R.targetX;
+      if (!gp.vertical) R.drawX = R.targetX;
       R.anim = { clip: 'ninja_throw', t0: S.t, dur: 0.3 };
     }
   } else {
@@ -1543,7 +1582,7 @@ function cast(k) {
   if (k.name === 'TIGER') tiger();
   if (k.name === 'STILL') R.stillT = 4;
   if (k.name === 'SHADOW') R.shadowT = 6;
-  if (k.name === 'CRANE') { R.cam -= 110; R.craneT = S.t; }
+  if (k.name === 'CRANE') { if (R.vert) R.vert.rise += 110; else R.cam -= 110; R.craneT = S.t; }
 }
 function tiger() {
   const R = S.R;
@@ -1551,6 +1590,7 @@ function tiger() {
   for (let si = Math.max(0, R.si - 2); si < Math.min(R.slots.length, R.si + 8); si++) {
     for (const o of R.slots[si].opts) {
       if (o.x > hi || o.x + o.w < lo || o.crumble) continue;
+      if (o.tower && Math.abs(o.ry - ninjaY()) > FH * 2.5) continue;
       const g = o.guard;
       if (g && (g.state === 'waiting' || g.state === 'fighting')) {
         g.state = 'dead';
@@ -1597,11 +1637,11 @@ function updateRun(dt) {
 
   // the pursuit: faster every time the five roads come round again
   const pace = D.speed * (1 + 0.08 * R.tier);
-  if (!R.dead && R.stillT <= 0) R.cam += pace * wdt;
-  if (R.dead) R.cam += D.speed * 0.2 * wdt;
+  if (!R.vert && !R.dead && R.stillT <= 0) R.cam += pace * wdt;
+  if (R.dead && !R.vert) R.cam += D.speed * 0.2 * wdt;
 
   const opt = curOpt();
-  if (opt && !R.jump && !R.grap && !R.duel) {
+  if (opt && !R.jump && !R.grap && !R.duel && !R.vert) {
     let tx = charX(opt, Math.min(R.ci, opt.len)) + ADV / 2;
     const g = opt.guard;
     if (g && g.state !== 'dead') tx = Math.min(tx, charX(opt, g.start) - 2);
@@ -1611,7 +1651,7 @@ function updateRun(dt) {
     const j = R.jump;
     j.t += wdt;
     const u = clamp(j.t / j.dur, 0, 1);
-    const y1 = footY(j.to);
+    const y1 = j.y1 != null ? j.y1 : footY(j.to);
     R.drawX = lerp(j.x0, j.x1, u);
     R.jumpY = lerp(j.y0, y1, u) - Math.sin(u * Math.PI) * j.h;
     if (u >= 1) {
@@ -1620,12 +1660,12 @@ function updateRun(dt) {
       R.lastLandT = S.t;
       addFx('dust', j.x1, y1 + 1);
     }
-  } else if (!R.grap || R.grap.phase === 'prompt') {
+  } else if (!R.vert && (!R.grap || R.grap.phase === 'prompt')) {
     const k = 1 - Math.exp(-wdt * 16);
     R.drawX += (R.targetX - R.drawX) * k;
     if (Math.abs(R.targetX - R.drawX) < 0.4) R.drawX = R.targetX;
   }
-  R.cam = Math.max(R.cam, R.drawX - 232);
+  if (!R.vert) R.cam = Math.max(R.cam, R.drawX - 232);
 
   if ((R.shadowT > 0 || R.tier >= 3) && !frozen) {
     R.trail.push({ x: R.drawX, t: S.t });
@@ -1633,18 +1673,18 @@ function updateRun(dt) {
   } else R.trail.length = 0;
 
   const sx = R.drawX - R.cam;
-  if (sx < 4 && !R.dead) die('OVERRUN');
+  if (sx < 4 && !R.dead && !R.vert) die('OVERRUN');
 
   // hearts on the roof
   if (opt && opt.heart && !opt.heart.taken && !R.jump) {
-    const lx = charX(opt, opt.heart.i) + ADV / 2;
-    if (R.drawX >= lx - 3) {
+    const lx = opt.tower ? R.drawX : charX(opt, opt.heart.i) + ADV / 2;
+    if (opt.tower ? R.ci > opt.heart.i : R.drawX >= lx - 3) {
       opt.heart.taken = true;
       R.hearts = Math.min(R.maxHearts, R.hearts + 1);
       R.lanterns++;
       R.score += 200;
-      addFx('spark', lx, footY(opt) - 26);
-      embers(lx, footY(opt) - 26, 16, COL.lamp, 20);
+      addFx('spark', lx, ninjaY() - 26);
+      embers(lx, ninjaY() - 26, 16, COL.lamp, 20);
     }
   }
 
@@ -1659,7 +1699,9 @@ function updateRun(dt) {
   const tdt = R.menu || R.stillT > 0 ? 0 : wdt * (R.tier >= 3 ? 0.7 : 1);
   updateHazard(tdt);
   updateDuel(tdt);
-  updateGrapple(R.grap && R.grap.phase === 'prompt' ? tdt : wdt);
+  if (R.grap && R.grap.vertical) updateGrappleV(R.grap.phase === 'prompt' ? tdt : wdt);
+  else updateGrapple(R.grap && R.grap.phase === 'prompt' ? tdt : wdt);
+  updateTower(dt, wdt);
 
   // weapons flying back to their owners
   for (let i = R.flying.length - 1; i >= 0; i--) {
@@ -1670,7 +1712,7 @@ function updateRun(dt) {
       f.enemy.deadT = S.t;
       R.kills++; logKill();
       R.score += 300;
-      addFx('blood_spray', f.to + 2, footY(f.opt) - 20);
+      addFx('blood_spray', f.to + 2, enemyFootY(f.opt) - 20);
     }
   }
 
@@ -1807,13 +1849,14 @@ function drawTitle() {
   const tt = S.t;
   const wk = drawTitleBackdrop(tt, tt * 14);
   drawRoof(titleOpt(wk, 368), -24, 196);
+  const kv = n => vclip(n, wk);
   const ft = tt % 2.9, NX = 104, EX = 196, FOOT = 191;
   let nClip, nF, nX = NX, nY = FOOT, eClip, eF;
-  if (ft < 0.7) { nClip = 'ninja_idle'; nF = frameOf('ninja_idle', tt); eClip = 'kage_idle'; eF = frameOf('kage_idle', tt); }
-  else if (ft < 1.15) { const p = (ft - 0.7) / 0.45; nClip = 'ninja_run'; nF = frameOf('ninja_run', tt); nX = lerp(NX, 162, p); eClip = 'kage_idle'; eF = frameOf('kage_idle', tt); }
-  else if (ft < 1.6) { const s = (ft - 1.15) / 0.45; nClip = 'ninja_strike'; nF = Math.min(3, s * 5); nX = 162; eClip = 'kage_strike'; eF = Math.min(1, s * 2); }
-  else if (ft < 2.0) { const q = (ft - 1.6) / 0.4; nClip = 'ninja_jump'; nF = q * 6; nX = lerp(162, NX, q); nY = FOOT - Math.sin(q * Math.PI) * 18; eClip = 'kage_throw'; eF = q * 3; }
-  else { nClip = 'ninja_idle'; nF = frameOf('ninja_idle', tt); eClip = 'kage_idle'; eF = frameOf('kage_idle', tt); }
+  if (ft < 0.7) { nClip = 'ninja_idle'; nF = frameOf('ninja_idle', tt); eClip = kv('kage_idle'); eF = frameOf('kage_idle', tt); }
+  else if (ft < 1.15) { const p = (ft - 0.7) / 0.45; nClip = 'ninja_run'; nF = frameOf('ninja_run', tt); nX = lerp(NX, 162, p); eClip = kv('kage_idle'); eF = frameOf('kage_idle', tt); }
+  else if (ft < 1.6) { const s = (ft - 1.15) / 0.45; nClip = 'ninja_strike'; nF = Math.min(3, s * 5); nX = 162; eClip = kv('kage_strike'); eF = Math.min(1, s * 2); }
+  else if (ft < 2.0) { const q = (ft - 1.6) / 0.4; nClip = 'ninja_jump'; nF = q * 6; nX = lerp(162, NX, q); nY = FOOT - Math.sin(q * Math.PI) * 18; eClip = kv('kage_throw'); eF = q * 3; }
+  else { nClip = 'ninja_idle'; nF = frameOf('ninja_idle', tt); eClip = kv('kage_idle'); eF = frameOf('kage_idle', tt); }
   put(eClip, eF, EX, FOOT);
   put(nClip, nF, nX, nY);
   if (ft >= 1.24 && ft < 1.52) put('slash', (ft - 1.24) / 0.28 * 3, 178, 172);
@@ -1932,28 +1975,430 @@ function drawResults() {
   textC('small', (R.daily ? 'daily road ' + todayKey() : 'road ' + (R.seed >>> 0).toString(36).toUpperCase()) + '   -   Enter runs again', 160, 222, 'shade');
 }
 
+
+// ---------------------------------------------------------------- towers
+// From stage 3 some worlds end at the foot of a tower. The road turns upward:
+// each floor carries a line of words, typing climbs it, and a threat rises
+// from below instead of the pursuit from the left. At the top the ninja pulls
+// himself onto the roof and dives down to the next rooftop.
+const FH = 64;                 // one floor
+const TOWER_W = 180;
+const TOWER_STYLE = {
+  city: { name: 'THE PAGODA', facade: 'facade_city', ledge: 'ledge_city', win: 'win_city', sill: 'sill_city', pillar: 'pillar_city', cap: 'temple', threat: 'smoke', cause: 'SMOTHERED' },
+  grove: { name: 'THE BAMBOO TOWER', facade: 'facade_grove', ledge: 'ledge_grove', win: 'win_grove', sill: 'sill_grove', pillar: 'pillar_grove', cap: 'hut', threat: 'mist', cause: 'LOST IN THE MIST' },
+  snow: { name: 'THE ICE CLIFF', facade: 'facade_snow', ledge: 'ledge_snow', win: 'win_snow', sill: 'sill_snow', pillar: 'pillar_snow', cap: 'snowtemple', threat: 'avalanche', cause: 'BURIED' },
+  castle: { name: 'THE KEEP', facade: 'facade_castle', ledge: 'ledge_castle', win: 'win_castle', sill: 'sill_castle', pillar: 'pillar_castle', cap: 'keep', threat: 'guards', cause: 'DRAGGED DOWN' },
+  harbour: { name: 'THE LIGHTHOUSE', facade: 'facade_harbour', ledge: 'ledge_harbour', win: 'win_harbour', sill: 'sill_harbour', pillar: 'pillar_harbour', cap: 'warehouse', threat: 'tide', cause: 'TAKEN BY THE TIDE' },
+};
+const TOWER_FORKS = [['west wall', 'east wall'], ['by vines', 'on sills'], ['past bell', 'up ropes'],
+  ['old eaves', 'new beams'], ['dark side', 'lit side']];
+const SKY_TOP = { city: '#04060C', grove: '#1A2E2C', snow: '#090E22', castle: '#361C3C', harbour: '#22143A' };
+
+function genTower(wk, seg, x, lane) {
+  const R = S.R, rnd = R.rnd;
+  const D0 = tune(diffAt(R.slots.length));
+  const floors = Math.round(lerp(5, 12, D0.d)) + randInt(0, 1, rnd);
+  const T = { wk, seg, x, w: TOWER_W, baseY: LANES[lane] + 6, floors, style: TOWER_STYLE[wk] };
+  const forkAt = floors >= 6 && rnd() < 0.6 ? randInt(2, floors - 3, rnd) : -1;
+  let lastHook = false;
+  for (let i = 0; i < floors; i++) {
+    const D = tune(diffAt(R.slots.length));
+    const base = T.baseY - i * FH;
+    if (i === forkAt) {
+      const pair = pick(TOWER_FORKS, rnd);
+      const L = makeOpt(pair[0], x, lane, rnd, wk, 'tower', 0);
+      const Rt = makeOpt(pair[1], x + 90, lane, rnd, wk, 'tower', 0);
+      for (const [o, side] of [[L, 'left'], [Rt, 'right']]) {
+        o.ry = base; o.w = 90; o.tower = T; o.floor = i; o.side = side;
+      }
+      // one side keeps a heart in its gutter, the other a scroll of kata
+      if (rnd() < 0.5) { L.reward = 'heart'; Rt.reward = 'kata'; } else { L.reward = 'kata'; Rt.reward = 'heart'; }
+      R.slots.push({ kind: 'fork', opts: [L, Rt], seg, world: wk, tower: T });
+      lastHook = false;
+      continue;
+    }
+    const opt = makeOpt(takeLine(wk, D.d), x, lane, rnd, wk, 'tower', 0);
+    opt.ry = base; opt.w = TOWER_W; opt.tower = T; opt.floor = i;
+    if (i > 0) {
+      const w = WORLDS[wk].w;
+      const r = rnd();
+      if (r < (w.kage + w.archer) * D.enemyMul * 0.8) addEnemy(opt, r < w.kage * D.enemyMul * 0.8 ? 'kage' : 'archer', rnd, D, wk);
+      else if (rnd() < 0.3 * D.dropMul) {
+        opt.drop = makeHazard('debris', pick(D.hz.slice(0, 2), rnd), D);
+        opt.drop.at = clamp(Math.floor(opt.len * 0.5), 3, opt.len - 3);
+      } else if (rnd() < 0.1 * D.heartMul) {
+        opt.heart = { i: clamp(randInt(3, opt.len - 3, rnd), 1, opt.len - 1), taken: false };
+      }
+      opt.snuff = null;
+      if (opt.enemy) opt.enemy.hidden = false;
+      if (rnd() < 0.25) addPower(opt);
+      // an overhang: only the hook gets you over it
+      if (!lastHook && i < floors - 1 && i + 1 !== forkAt && rnd() < 0.16 * D.grappleMul) {
+        opt.grapple = { word: pick(D.hook, rnd) };
+        lastHook = true;
+      } else lastHook = false;
+    }
+    R.slots.push({ kind: 'line', opts: [opt], seg, world: wk, tower: T });
+  }
+  return T;
+}
+
+function climbX(T, side) { return side === 'right' ? T.x + T.w + 5 : T.x - 5; }
+function towerCapY(T) { return T.baseY - T.floors * FH; }
+function summitY(T) { return towerCapY(T) - 16; }
+function enemyFootY(o) { return o.tower ? o.ry + 8 : footY(o); }
+function towerWindowX(T, side) { return side === 'left' ? T.x + 10 : T.x + T.w - 28; }
+
+// where the ninja's feet are, whatever he is doing
+function ninjaY() {
+  const R = S.R;
+  if (R.jump || (R.grap && R.grap.phase !== 'prompt')) return R.jumpY;
+  if (R.vert && R.vert.phase !== 'dive') return R.climbY;
+  return footY(hereOpt());
+}
+
+function enterTower(T, from) {
+  const R = S.R;
+  R.vert = { tower: T, phase: 'enter', t0: S.t, side: 'left', rise: T.baseY + 175, bars: 0, shimmy: null };
+  R.towerBanner = { name: T.style.name, t0: S.t };
+  const x1 = climbX(T, 'left'), y1 = T.baseY;
+  const y0 = ninjaY();
+  R.jump = { t: 0, dur: 0.5, x0: R.drawX, x1, y0, y1, h: 18 };
+  R.jumpY = y0;
+  R.climbY = y1;
+}
+
+function leaveTower(from) {
+  const R = S.R, V = R.vert;
+  V.phase = 'summit';
+  V.t0 = S.t;
+  R.drawX = V.tower.x + V.tower.w / 2 - 20;
+  R.climbY = summitY(V.tower);
+  R.anim = null;
+}
+
+// each wall gives up something different under the ninja's hands
+function climbChips(T, side) {
+  const R = S.R, hx = R.drawX + (side === 'right' ? -6 : 6), hy = R.climbY - 34;
+  const k = T.wk;
+  if (k === 'city') embers(hx, hy, 2, hash((S.t * 50) | 0, 3) < 0.5 ? COL.gold : COL.steel, 6);
+  else if (k === 'grove') embers(hx, hy + 4, 2, '#5E7430', -8);
+  else if (k === 'snow') {
+    embers(hx, hy, 3, COL.ice, 4);
+    if (hash((S.t * 10) | 0, 9) < 0.3) R.fx.push({ dot: true, x: R.drawX + (side === 'right' ? -10 : 10), y: hy - 4, vx: (side === 'right' ? -8 : 8), vy: -12, life: 0.6, t0: S.t, col: '#DCE6F4' });
+  }
+  else if (k === 'castle') embers(hx, hy, 2, '#D8D0C2', 2);
+  else embers(hx, hy + 2, 2, '#6A8AC8', -12);
+}
+
+function updateTower(dt, wdt) {
+  const R = S.R, V = R.vert;
+  if (!V) { R.camY += (0 - R.camY) * Math.min(1, dt * 4); if (Math.abs(R.camY) < 0.5) R.camY = 0; return; }
+  const T = V.tower;
+  const kx = Math.min(1, dt * 3);
+  if (V.phase !== 'dive') R.cam += ((T.x + T.w / 2 - 160) - R.cam) * kx;
+  V.bars += ((V.phase === 'dive' ? 0 : 1) - V.bars) * Math.min(1, dt * 5);
+
+  if (V.phase === 'enter' && !R.jump) V.phase = 'climb';
+
+  if (V.phase === 'climb') {
+    const opt = curOpt();
+    if (V.shimmy) {
+      const u = clamp((S.t - V.shimmy.t0) / 0.45, 0, 1);
+      R.drawX = lerp(V.shimmy.x0, V.shimmy.x1, u);
+      if (u >= 1) V.shimmy = null;
+    } else if (!R.grap || R.grap.phase === 'prompt') {
+      R.drawX = climbX(T, V.side);
+    }
+    if (!R.grap || R.grap.phase === 'prompt') {
+      let ty = R.climbY;
+      if (opt && opt.tower) ty = opt.ry - FH * (R.ci / opt.len);
+      const moving = Math.abs(ty - R.climbY) > 1;
+      R.climbY += (ty - R.climbY) * (1 - Math.exp(-wdt * 12));
+      if (moving && S.t - (V.chipT || 0) > 0.14) { V.chipT = S.t; climbChips(T, V.side); }
+    }
+    // the threat rises from below; it never falls far behind
+    if (!R.dead && R.stillT <= 0) V.rise -= R.D.speed * 0.42 * (1 + 0.08 * R.tier) * wdt;
+    V.rise = Math.min(V.rise, R.climbY + 175);
+    if (!R.dead && V.rise <= R.climbY + 2) die(T.style.cause);
+  } else if (V.phase === 'summit') {
+    const u = S.t - V.t0;
+    if (!R.dead && V.rise > R.climbY + 2) V.rise -= R.D.speed * 0.35 * wdt;
+    if (u >= 1.0) {
+      // the dive: off the roof and down to the next rooftop
+      const next = curOpt() || R.slots[R.si].opts[0];
+      V.phase = 'dive';
+      V.t0 = S.t;
+      V.camFrom = R.camY;
+      const x1 = charX(next, 0) + ADV / 2;
+      R.jump = { t: 0, dur: 0.95, x0: R.drawX, x1, y0: R.climbY, to: next, h: 26, dive: true };
+      R.jumpY = R.climbY;
+      R.anim = null;
+    }
+  } else if (V.phase === 'dive') {
+    if (R.jump) {
+      const u = clamp(R.jump.t / R.jump.dur, 0, 1);
+      R.camY = lerp(V.camFrom, 0, u);             // fall with him, so he stays in frame
+    } else {
+      R.vert = null;
+      R.camY = 0;
+      R.cam = Math.max(R.cam, R.drawX - 150);
+      return;
+    }
+  }
+  if (V.phase !== 'dive') {
+    const target = Math.max(0, 176 - R.climbY);
+    R.camY += (target - R.camY) * Math.min(1, dt * 5);
+  }
+}
+
+// ---------------------------------------------------------------- the hook, upward
+function startGrappleV(opt) {
+  const R = S.R, V = R.vert;
+  const next = R.slots[R.si + 1].opts[0];
+  const dir = V.side === 'right' ? -1 : 1;
+  R.grap = {
+    opt, next, vertical: true, word: opt.grapple.word, typed: '', t: 0,
+    T: R.D.window + opt.grapple.word.length * 0.16 + 0.6, phase: 'prompt', t0: S.t, badT: -9,
+    ring: { x: climbX(V.tower, V.side) + dir * 16, y: opt.ry - FH - 14 },
+  };
+}
+
+function updateGrappleV(gdt) {
+  const R = S.R, gp = R.grap, V = R.vert;
+  const top = gp.opt.ry - FH;
+  const out = V.side === 'right' ? 1 : -1;
+  if (gp.phase === 'prompt') {
+    gp.t += gdt;
+    if (gp.t >= gp.T) { gp.phase = 'fall'; gp.t0 = S.t; gp.y0 = R.climbY; }
+    R.jumpY = R.climbY;
+  } else if (gp.phase === 'throw') {
+    R.jumpY = R.climbY;
+    if (S.t - gp.t0 >= 0.3) { gp.phase = 'swing'; gp.t0 = S.t; gp.y0 = R.climbY; gp.x0 = R.drawX; }
+  } else if (gp.phase === 'swing') {
+    // out around the overhang and up over it
+    const u = clamp((S.t - gp.t0) / 0.7, 0, 1);
+    const e = u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
+    R.drawX = gp.x0 + out * Math.sin(u * Math.PI) * 22;
+    R.jumpY = lerp(gp.y0, top - 2, e) - Math.sin(u * Math.PI) * 10;
+    if (u >= 1) { R.climbY = top; R.drawX = gp.x0; landV(gp, true); }
+  } else if (gp.phase === 'fall') {
+    const u = clamp((S.t - gp.t0) / 0.45, 0, 1);
+    R.jumpY = lerp(gp.y0, gp.y0 + FH * 0.9, u * u);
+    if (u >= 1 && !gp.hurt) { gp.hurt = true; loseHeart('SLIPPED', 1); gp.phase = 'climb'; gp.t0 = S.t; gp.y1 = R.jumpY; }
+  } else if (gp.phase === 'climb') {
+    const u = clamp((S.t - gp.t0) / 1.1, 0, 1);
+    R.jumpY = lerp(gp.y1, top, u);
+    R.climbY = R.jumpY;
+    if (u >= 1) landV(gp, false);
+  }
+}
+
+function landV(gp, swung) {
+  const R = S.R;
+  gp.opt.grapple.done = true;
+  R.grap = null;
+  R.climbY = gp.opt.ry - FH;
+  if (swung) { R.grapples++; R.score += 250; }
+  advance(gp.opt, gp.next, 'landed');
+}
+
+// ---------------------------------------------------------------- drawing towers
+function drawTower(T) {
+  const R = S.R, st = T.style, cam = R.cam;
+  const x = Math.round(T.x - cam), w = T.w;
+  if (x + w < -40 || x > LW + 40) return;
+  const yTop = -R.camY - FH, yBot = -R.camY + LH + FH;
+  const iMax = Math.min(T.floors - 1, Math.floor((T.baseY - yTop) / FH));
+  const iMin = Math.floor((T.baseY - yBot) / FH);
+  for (let i = iMin; i <= iMax; i++) {
+    const base = T.baseY - i * FH, top = base - FH;
+    for (let yy = top; yy < base; yy += 16) tileAcross(st.facade, x, yy, w);
+    for (let yy = top; yy < base; yy += 16) { blit(st.pillar, x - 1, yy); blit(st.pillar, x + w - 2, yy); }
+    blit(st.win, towerWindowX(T, 'left') - cam, base - 30);
+    blit(st.win, towerWindowX(T, 'right') - cam, base - 30);
+    tileAcross(st.ledge, x - 6, base - 4, w + 12);
+    drawTowerDeco(T, i, x, base, top);
+    if (i >= 0) {
+      tileAcross('kanban_mid', x + 11, top + 12, w - 22);
+      blit('kanban_end', x + 6, top + 12);
+      blitFlip('kanban_end', x + w - 11, top + 12);
+    }
+  }
+  // the cap, when the top is in view
+  const capY = towerCapY(T);
+  if (capY > yTop - 30) {
+    const rs = ROOF_STYLES[st.cap] || ROOF_STYLES.town;
+    tileAcross(rs.face, x - 10, capY - 14, w + 20);
+    if (rs.curl) {
+      tileAcross(rs.ridge, x - 14, capY - 19, w + 28);
+      blit(rs.curl, x - 20, capY - 6);
+      blitFlip(rs.curl, x + w + 8, capY - 6);
+    } else {
+      tileAcross(rs.ridge, x - 12, capY - 18, w + 24);
+      blit(rs.eave, x - 15, capY - 3);
+      blitFlip(rs.eave, x + w + 9, capY - 3);
+    }
+    if (T.wk === 'harbour') { blit('lantern_glow', x + w / 2 - 10, capY - 42); blit('lantern', x + w / 2 - 4, capY - 36); }
+    else if (T.wk === 'city') blit('shachihoko', x + w / 2 - 4, capY - 27);
+    else if (T.wk === 'castle') blit('turret', x + w / 2 - 15, capY - 42);
+    else if (T.wk === 'snow') blit('toro', x + w / 2 - 7, capY - 40);
+    else blit('fence_bamboo', x + w / 2 - 13, capY - 36);
+  }
+}
+
+function drawTowerDeco(T, i, x, base, top) {
+  const w = T.w, h = hash(i + 97, T.x | 0), tt = S.t;
+  switch (T.wk) {
+    case 'city':      // paper lanterns hung under the eaves
+      if (h < 0.7) { const lx = x + 34 + Math.floor(h * 10) * 11; blit('lantern', lx, base + 2 + Math.round(Math.sin(tt * 2 + i) * 1)); }
+      break;
+    case 'grove':     // vines down the scaffold
+      for (let v = 0; v < 3; v++) {
+        const vx = x + 30 + Math.floor(hash(i, v + 5) * (w - 60));
+        const len = 10 + Math.floor(hash(i, v + 11) * 30);
+        for (let y = 0; y < len; y += 2) rect(vx + (((y >> 3) + v) % 2), top + 2 + y, 1, 2, y % 6 ? '#2E5A22' : '#5E8A34');
+      }
+      break;
+    case 'snow':      // ice under every ledge
+      tileAcross('icicles', x - 4, base + 2, w + 8);
+      break;
+    case 'castle':    // a war banner on the odd floor, arrow slits between windows
+      blit('window_slit', x + Math.round(w / 2) - 30, base - 26);
+      blit('window_slit', x + Math.round(w / 2) + 25, base - 26);
+      if (h < 0.5) {
+        const bx = x + (h < 0.25 ? 36 : w - 44);
+        rect(bx, top + 30, 1, 30, '#2A1C12');
+        rect(bx + 1, top + 31, 7, 18, '#B02A2A');
+        rect(bx + 3, top + 36, 3, 3, '#F4E8D0');
+      }
+      break;
+    case 'harbour':   // glowing portholes and a net hung to dry
+      blit('window_port', x + Math.round(w / 2) - 30, base - 24);
+      blit('window_port', x + Math.round(w / 2) + 22, base - 24);
+      if (h < 0.45) {
+        const nx = x + 40 + Math.floor(h * 60);
+        for (let y = 0; y < 14; y += 3) rect(nx, base + 2 + y, 16, 1, '#B89868');
+        for (let k = 0; k < 16; k += 4) rect(nx + k, base + 2, 1, 14, '#B89868');
+      }
+      break;
+  }
+}
+
+// an overhang the hook must clear, and the ring it catches
+function drawOverhang(o) {
+  const R = S.R, T = o.tower;
+  const x = Math.round(T.x - R.cam), top = o.ry - FH;
+  tileAcross(T.style.ledge, x - 16, top - 6, T.w + 32);
+  tileAcross(T.style.ledge, x - 16, top - 2, T.w + 32);
+  const side = R.vert ? R.vert.side : 'left';
+  const dir = side === 'right' ? -1 : 1;
+  const rx = climbX(T, side) + dir * 16 - R.cam, ry = top - 14;
+  const g = ctx();
+  g.fillStyle = '#8C93A4';
+  for (let a = 0; a < 16; a++) {
+    const t = a / 16 * Math.PI * 2;
+    g.fillRect(Math.round(rx + Math.cos(t) * 3), Math.round(ry + Math.sin(t) * 3), 1, 1);
+  }
+}
+
+// the threat rising from below
+function drawThreat(V) {
+  const R = S.R, T = V.tower, y0 = Math.round(V.rise), yEnd = -R.camY + LH + 2;
+  if (y0 > yEnd) return;
+  const tt = S.t, g = ctx();
+  const kind = T.style.threat;
+  const body = { smoke: '#15151B', mist: 'rgba(156,176,138,0.92)', avalanche: '#DCE6F4', guards: '#0E0A10', tide: '#2A1434' }[kind];
+  const edge = { smoke: '#3A3A44', mist: '#C8D8B0', avalanche: '#FFFFFF', guards: '#2A1C24', tide: '#E8C8D8' }[kind];
+  g.fillStyle = body;
+  g.fillRect(0, y0 + 4, LW, yEnd - y0);
+  for (let x = 0; x < LW; x += 2) {
+    const wv = Math.sin(x * 0.09 + tt * 3) * 2 + Math.sin(x * 0.23 - tt * 5) * 1.5;
+    g.fillStyle = body;
+    g.fillRect(x, Math.round(y0 + wv), 2, 6);
+    g.fillStyle = edge;
+    g.fillRect(x, Math.round(y0 + wv), 2, 1);
+  }
+  if (kind === 'smoke' || kind === 'guards') {
+    for (let i = 0; i < 12; i++) {
+      const ex = (i * 53 + tt * 20) % LW, ey = y0 - ((tt * 30 + i * 17) % 40);
+      g.fillStyle = i % 3 ? '#F2A63C' : '#C8342E';
+      g.fillRect(Math.round(ex), Math.round(ey), 1, 1);
+    }
+  }
+  if (kind === 'guards') {
+    for (let i = 0; i < 7; i++) {
+      const sx = 20 + i * 44 + Math.sin(tt * 2 + i) * 4, sy = y0 - 10 + Math.sin(tt * 4 + i * 2) * 3;
+      g.fillStyle = '#A8AEC0';
+      g.fillRect(Math.round(sx), Math.round(sy), 1, 14);
+      g.fillStyle = '#0E0A10';
+      g.fillRect(Math.round(sx) - 3, Math.round(sy) + 8, 7, 10);
+    }
+  }
+  if (kind === 'avalanche' || kind === 'tide') {
+    for (let i = 0; i < 16; i++) {
+      const ex = (i * 37 + tt * (kind === 'tide' ? 14 : 40)) % LW, ey = y0 - 2 - ((tt * 24 + i * 11) % 12);
+      g.fillStyle = edge;
+      g.fillRect(Math.round(ex), Math.round(ey), 2, 1);
+    }
+  }
+}
+
+function drawSideBars(V) {
+  const w = Math.round(28 * V.bars);
+  if (w <= 0) return;
+  rect(0, 0, w, LH, 'rgba(3,4,8,0.82)');
+  rect(LW - w, 0, w, LH, 'rgba(3,4,8,0.82)');
+  rect(w, 0, 1, LH, 'rgba(244,185,61,' + (0.35 * V.bars).toFixed(2) + ')');
+  rect(LW - w - 1, 0, 1, LH, 'rgba(244,185,61,' + (0.35 * V.bars).toFixed(2) + ')');
+}
+
+function putFlip(name, i, x, y, alpha) {
+  const g = ctx();
+  g.save();
+  g.translate(Math.round(x) * 2, 0);
+  g.scale(-1, 1);
+  put(name, i, x, y, alpha);
+  g.restore();
+}
+
 // ---------------------------------------------------------------- the run
 function drawWorld(still, noHud) {
   const R = S.R;
   const tt = S.t;
   const cam = R.cam;
+  const g0 = ctx();
 
-  // the backdrop crossfades across a world's gate
+  // the backdrop crossfades across a world's gate, and sinks as the ninja climbs
   const { cur, next } = worldAt(cam + 160);
   let fade = 0;
   if (next) fade = clamp(1 - (next.x0 - (cam + 160)) / 220, 0, 1);
+  const lift = Math.round(Math.min(R.camY * 0.3, 130));
+  if (lift > 0) {
+    rect(0, 0, LW, lift + 1, SKY_TOP[cur.wk]);
+    g0.save();
+    g0.translate(0, lift);
+  }
   BACKDROP[cur.wk](cam, tt);
   if (fade > 0) {
-    const g = ctx();
-    g.globalAlpha = fade;
+    g0.globalAlpha = fade;
     BACKDROP[next.wk](cam, tt);
-    g.globalAlpha = 1;
+    g0.globalAlpha = 1;
   }
   const here = fade > 0.5 ? next.wk : cur.wk;
   drawVoid(here, cam, tt);
+  if (lift > 0) g0.restore();
+
+  // everything in the world moves with the vertical camera
+  g0.save();
+  g0.translate(0, Math.round(R.camY));
 
   const cu = curOpt();
-  const lo = Math.max(0, R.si - 5), hi = Math.min(R.slots.length, R.si + 10);
+  const lo = Math.max(0, R.si - 16), hi = Math.min(R.slots.length, R.si + 22);
+
+  const towers = [];
+  for (let si = lo; si < hi; si++) { const T = R.slots[si].tower; if (T && towers.indexOf(T) < 0) towers.push(T); }
+  for (const T of towers) drawTower(T);
 
   for (let si = lo; si < hi; si++) {
     const slot = R.slots[si];
@@ -1961,6 +2406,12 @@ function drawWorld(still, noHud) {
       const o = slot.opts[oi];
       const x = Math.round(o.x - cam);
       if (x + o.w < -60 || x > LW + 60) continue;
+      if (o.tower) {
+        if (o.ry - FH > -R.camY + LH + 20 || o.ry < -R.camY - 20) continue;
+        if (o.grapple && !o.grapple.done) drawOverhang(o);
+        drawBoardText(o, { textY: o.ry - FH + 15 }, si, cu, 0);
+        continue;
+      }
       let sink = 0;
       if (o.crumble) {
         const u = tt - o.crumble;
@@ -1987,8 +2438,14 @@ function drawWorld(still, noHud) {
       drawGuard(o);
       drawEnemy(o);
       if (o.heart && !o.heart.taken) {
-        const lx = charX(o, o.heart.i) + ADV / 2 - cam;
-        put('lantern_pick', frameOf('lantern_pick', tt), lx, footY(o) - 26 + Math.sin(tt * 3 + o.seed) * 2);
+        if (o.tower) {
+          const side = R.vert ? R.vert.side : 'left';
+          const lx = climbX(o.tower, side) - cam + (side === 'left' ? -9 : 9);
+          put('lantern_pick', frameOf('lantern_pick', tt), lx, o.ry - FH * (o.heart.i / o.len) - 6 + Math.sin(tt * 3 + o.seed) * 2);
+        } else {
+          const lx = charX(o, o.heart.i) + ADV / 2 - cam;
+          put('lantern_pick', frameOf('lantern_pick', tt), lx, footY(o) - 26 + Math.sin(tt * 3 + o.seed) * 2);
+        }
       }
     }
     if (slot.kind === 'fork' && si === R.si && R.pending) drawForkSigns(slot);
@@ -2010,17 +2467,18 @@ function drawWorld(still, noHud) {
     const i = Math.min(c.frames.length - 1, Math.floor(age * 1000 / c.ms));
     put(f.clip, i, f.x - cam, f.y);
   }
+  if (R.vert && R.vert.phase !== 'dive') drawThreat(R.vert);
+  g0.restore();
 
   if (fade > 0 && fade < 1) {
-    const g = ctx();
-    g.globalAlpha = 1 - fade; drawWeather(cur.wk, cam, tt);
-    g.globalAlpha = fade; drawWeather(next.wk, cam, tt);
-    g.globalAlpha = 1;
+    g0.globalAlpha = 1 - fade; drawWeather(cur.wk, cam, tt);
+    g0.globalAlpha = fade; drawWeather(next.wk, cam, tt);
+    g0.globalAlpha = 1;
   } else drawWeather(here, cam, tt);
 
-  if (R.tier >= 1 && !R.dead) {
-    const nx = R.drawX - cam, o = hereOpt();
-    const fy = R.jump || R.grap ? R.jumpY : footY(o);
+  if (R.tier >= 1 && !R.dead && !R.vert) {
+    const nx = R.drawX - cam;
+    const fy = ninjaY();
     for (let i = 0; i < 4 + R.tier * 3; i++) {
       const lx = nx - 16 - wrapX(i * 23 + tt * 260, 90);
       const ly = fy - 6 - ((i * 7) % 26);
@@ -2028,6 +2486,7 @@ function drawWorld(still, noHud) {
     }
   }
   if (R.stillT > 0) rect(0, 0, LW, LH, 'rgba(40,60,110,0.22)');
+  if (R.vert) drawSideBars(R.vert);
 
   if (!noHud) drawHud();
   if (!still) drawOverlays();
@@ -2082,6 +2541,16 @@ function drawBoardText(o, board, si, cu, sink) {
 function drawForkSigns(slot) {
   const R = S.R;
   for (const o of slot.opts) {
+    if (o.tower) {
+      const x = Math.round(o.x + o.w / 2 - 8 - R.cam), y = o.ry - FH - 12;
+      const blink = ((S.t * 3) | 0) % 2;
+      rect(x, y, 15, 15, '#05070B');
+      frame1(x, y, 15, 15, blink ? COL.gold : COL.hot);
+      textC('large', o.text[0].toUpperCase(), x + 8, y - 2, 'gold');
+      if (o.reward === 'heart') put('lantern_pick', frameOf('lantern_pick', S.t), x - 8, y + 10);
+      else blit('kata_seg_full', x + 17, y + 5);
+      continue;
+    }
     const x = Math.round(o.x - R.cam - 24), y = footY(o) - 12;
     const blink = ((S.t * 3) | 0) % 2;
     rect(x, y, 15, 15, '#05070B');
@@ -2113,30 +2582,30 @@ function drawGuard(o) {
   const fy = footY(o);
   if (g.state === 'dead') {
     const age = S.t - (g.corpseT || S.t);
-    if (age < 0) { put('enemy_idle', 0, rx, fy); return; }
-    const c = S.M.clips.enemy_die;
+    if (age < 0) { put(vclip('enemy_idle', o.world), 0, rx, fy); return; }
+    const c = S.M.clips[vclip('enemy_die', o.world)];
     const i = Math.min(c.frames.length - 1, Math.floor(age * 1000 / c.ms));
     if (i >= 3) put('blood_pool', Math.min(3, (age - 0.35) * 8), rx + 2, fy + 2);
-    put('enemy_die', i, rx, fy);
+    put(vclip('enemy_die', o.world), i, rx, fy);
     return;
   }
   const e = R.enc;
   if (e && e.g === g) {
     const u = S.t - e.t0;
     if (e.win) {
-      const c = S.M.clips.enemy_die;
-      put(u < 0.12 ? 'enemy_wind' : 'enemy_die', u < 0.12 ? 1 : Math.min(c.frames.length - 1, (u - 0.12) * 1000 / c.ms), rx, fy);
+      const c = S.M.clips[vclip('enemy_die', o.world)];
+      put(u < 0.12 ? vclip('enemy_wind', o.world) : vclip('enemy_die', o.world), u < 0.12 ? 1 : Math.min(c.frames.length - 1, (u - 0.12) * 1000 / c.ms), rx, fy);
     } else if (e.riposte && u >= 0.72) {
-      const c = S.M.clips.enemy_die;
-      put('enemy_die', Math.min(c.frames.length - 1, (u - 0.72) * 1000 / c.ms), rx, fy);
+      const c = S.M.clips[vclip('enemy_die', o.world)];
+      put(vclip('enemy_die', o.world), Math.min(c.frames.length - 1, (u - 0.72) * 1000 / c.ms), rx, fy);
     } else {
-      put(u < 0.12 ? 'enemy_wind' : 'enemy_strike', u < 0.12 ? u / 0.12 * 2 : Math.min(1, (u - 0.12) * 10), rx, fy);
+      put(u < 0.12 ? vclip('enemy_wind', o.world) : vclip('enemy_strike', o.world), u < 0.12 ? u / 0.12 * 2 : Math.min(1, (u - 0.12) * 10), rx, fy);
     }
     return;
   }
   const isCur = o === curOpt();
   const near = isCur && R.ci >= g.start - 3;
-  put(near ? 'enemy_wind' : 'enemy_idle', near ? 0 : frameOf('enemy_idle', S.t + o.seed), rx, fy);
+  put(near ? vclip('enemy_wind', o.world) : vclip('enemy_idle', o.world), near ? 0 : frameOf(vclip('enemy_idle', o.world), S.t + o.seed), rx, fy);
   if (isCur) {
     const wx = charX(o, g.start) - R.cam + ((g.end - g.start) * ADV) / 2;
     for (let y = fy + 2; y < o.ry + 20; y += 2) rect(wx, y, 1, 1, 'rgba(244,185,61,0.55)');
@@ -2146,13 +2615,31 @@ function drawGuard(o) {
 function drawEnemy(o) {
   const R = S.R, e = o.enemy;
   if (!e) return;
-  const ex = enemyX(o) - R.cam, fy = footY(o);
+  if (o.tower) {
+    const T = o.tower, g = ctx();
+    const wx = Math.round(towerWindowX(T, R.vert && R.vert.side === 'right' ? 'left' : 'right') - R.cam);
+    g.save();
+    g.beginPath();
+    g.rect(wx + 2, o.ry - 28, 14, 18);
+    g.clip();
+    drawEnemyBody(o, e);
+    g.restore();
+    blit(T.style.sill, wx - 2, o.ry - 12);
+    return;
+  }
+  drawEnemyBody(o, e);
+}
+
+function drawEnemyBody(o, e) {
+  const R = S.R;
+  const ex = enemyX(o) - R.cam, fy = enemyFootY(o);
   const K = e.kind;               // 'kage' or 'archer'
-  if (K === 'archer') blit(((S.t * 6 + o.seed) | 0) % 2 ? 'torch_a' : 'torch_b', ex + 9, fy - 16);
+  const W = o.world, vc = n => vclip(n, W);
+  if (K === 'archer' && !o.tower) blit(((S.t * 6 + o.seed) | 0) % 2 ? 'torch_a' : 'torch_b', ex + 9, fy - 16);
   if (e.state === 'dead') {
     const age = S.t - (e.deadT || S.t);
-    const clip = K + '_die';
-    if (age < 0) { put(K + '_idle', 0, ex, fy); return; }
+    const clip = vc(K + '_die');
+    if (age < 0) { put(vc(K + '_idle'), 0, ex, fy); return; }
     const c = S.M.clips[clip];
     const i = Math.min(c.frames.length - 1, Math.floor(age * 1000 / c.ms));
     if (i >= 3) put('blood_pool', Math.min(3, (age - 0.35) * 8), ex + 2, fy + 2);
@@ -2166,19 +2653,19 @@ function drawEnemy(o) {
   }
   const d = R.duel;
   if (d && d.e === e) {
-    if (d.phase === 'hit') put(K + '_strike', Math.min(1, (S.t - d.t0) * 8), ex, fy);
-    else if (d.phase === 'strike') put(K === 'kage' ? 'kage_strike' : 'archer_strike', 0, ex, fy);
-    else put(K === 'kage' ? 'kage_strike' : 'archer_idle', 0, ex, fy);
+    if (d.phase === 'hit') put(vc(K + '_strike'), Math.min(1, (S.t - d.t0) * 8), ex, fy);
+    else if (d.phase === 'strike') put(vc(K === 'kage' ? 'kage_strike' : 'archer_strike'), 0, ex, fy);
+    else put(vc(K === 'kage' ? 'kage_strike' : 'archer_idle'), 0, ex, fy);
     return;
   }
   const hz = e.hz;
   if (R.hazard === hz) {
-    if (K === 'kage') put('kage_throw', Math.min(2, (S.t - hz.startT) / 0.1), ex, fy);
-    else put('archer_draw', Math.min(2, (hz.t / hz.T) * 3.2), ex, fy);
+    if (K === 'kage') put(vc('kage_throw'), Math.min(2, (S.t - hz.startT) / 0.1), ex, fy);
+    else put(vc('archer_draw'), Math.min(2, (hz.t / hz.T) * 3.2), ex, fy);
     return;
   }
-  if (hz.state === 'done' && S.t - hz.doneT < 0.2 && K === 'archer') { put('archer_loose', 0, ex, fy); return; }
-  put(K + '_idle', frameOf(K + '_idle', S.t + o.seed), ex, fy);
+  if (hz.state === 'done' && S.t - hz.doneT < 0.2 && K === 'archer') { put(vc('archer_loose'), 0, ex, fy); return; }
+  put(vc(K + '_idle'), frameOf(K + '_idle', S.t + o.seed), ex, fy);
   // unaware of you: the lantern is out
   if (e.state === 'unaware' && ((S.t * 2) | 0) % 2) text('small', 'z', ex + 4, fy - 40, 'mute');
 }
@@ -2189,17 +2676,22 @@ function drawProjectile() {
   const nx = R.drawX - R.cam;
   if (hz) {
     const u = clamp(hz.t / hz.T, 0, 1);
-    const o = hz.opt, tx = nx + 4, ty = footY(o) - 20;
+    const o = hz.opt, tx = nx + 4, ty = ninjaY() - 20, top = -R.camY;
     if (hz.kind === 'shuriken') {
       const sx = hz.sx - R.cam - 8;
       put('shuriken', frameOf('shuriken', S.t), lerp(sx, tx, u), lerp(hz.sy, ty, u) - Math.sin(u * Math.PI) * 6);
     } else if (hz.kind === 'arrow') {
       const sx = hz.sx - R.cam - 10;
       blitFlip('arrow', lerp(sx - 14, tx, u), lerp(hz.sy, ty, u) - 1);
+    } else if (hz.kind === 'debris') {
+      const hang = top + 22 + (u < 0.55 ? Math.round(Math.sin(S.t * 40) * u) : 0);
+      const y = u < 0.55 ? hang : lerp(hang, ty - 10, Math.pow((u - 0.55) / 0.45, 2));
+      blit(o.world === 'snow' ? 'debris_rock' : 'debris_tile', tx - 4, y);
+      if (u < 0.55) for (let k = 0; k < 3; k++) rect(tx - 6 + k * 5, hang - 6 - ((S.t * 30 + k * 7) % 8), 1, 1, COL.shade);
     } else if (hz.kind === 'icicle') {
       // it hangs and trembles overhead, then lets go
-      const hang = 26 + (u < 0.62 ? Math.round(Math.sin(S.t * 40) * u) : 0);
-      const y = u < 0.62 ? hang : lerp(hang, footY(o) - 30, Math.pow((u - 0.62) / 0.38, 2));
+      const hang = top + 26 + (u < 0.62 ? Math.round(Math.sin(S.t * 40) * u) : 0);
+      const y = u < 0.62 ? hang : lerp(hang, ty - 10, Math.pow((u - 0.62) / 0.38, 2));
       if (u < 0.62) rect(tx - 5, hang - 3, 11, 3, COL.ice);
       const g = ctx();
       g.fillStyle = COL.ice;
@@ -2208,7 +2700,7 @@ function drawProjectile() {
       g.fillStyle = '#E8F4FF';
       g.fillRect(Math.round(tx - 1), Math.round(y), 1, 5);
     } else if (hz.kind === 'crate') {
-      const px = tx + 8, py = -8, a = lerp(1.15, -0.05, u * u), r = footY(o) - 36;
+      const px = tx + 8, py = top - 8, a = lerp(1.15, -0.05, u * u), r = ty - 16 - py;
       const cx = px + Math.sin(a) * r, cy = py + Math.cos(a) * r;
       drawLine(px, py, cx, cy, '#B89868');
       rect(cx - 6, cy, 12, 10, '#5A3822');
@@ -2228,13 +2720,13 @@ function drawProjectile() {
     if (!h || h.state !== 'done' || h.result !== true) continue;
     const age = S.t - h.doneT;
     if (age > 0.6) continue;
-    const tx = nx + 4, ty = footY(o) - 20;
+    const tx = nx + 4, ty = ninjaY() - 20;
     if (h.kind === 'shuriken') put('shuriken', frameOf('shuriken', S.t), tx - age * 420, ty - 6);
     else if (h.kind === 'arrow') blit('arrow', tx + 6 - age * 30, ty + age * age * 220);
     else if (h.kind === 'crate') {
-      const px = tx + 8, a = -0.05 - age * 3, r = footY(o) - 36;
-      drawLine(px, -8, px + Math.sin(a) * r, -8 + Math.cos(a) * r, '#B89868');
-      rect(px + Math.sin(a) * r - 6, -8 + Math.cos(a) * r, 12, 10, '#5A3822');
+      const py = -R.camY - 8, px = tx + 8, a = -0.05 - age * 3, r = ty - 16 - py;
+      drawLine(px, py, px + Math.sin(a) * r, py + Math.cos(a) * r, '#B89868');
+      rect(px + Math.sin(a) * r - 6, py + Math.cos(a) * r, 12, 10, '#5A3822');
     }
   }
 }
@@ -2253,8 +2745,8 @@ function drawLine(x0, y0, x1, y1, css) {
 function drawRope() {
   const R = S.R, gp = R.grap;
   if (!gp || (gp.phase !== 'throw' && gp.phase !== 'swing')) return;
-  const ring = hookRing(gp.next);
-  const hx = R.drawX - R.cam + 3, hy = (gp.phase === 'swing' ? R.jumpY : footY(gp.opt)) - 22;
+  const ring = gp.vertical ? gp.ring : hookRing(gp.next);
+  const hx = R.drawX - R.cam + 3, hy = (gp.phase === 'swing' ? R.jumpY : ninjaY()) - 22;
   const rx = ring.x - R.cam, ry = ring.y;
   if (gp.phase === 'throw') {
     const u = clamp((S.t - gp.t0) / 0.3, 0, 1);
@@ -2271,25 +2763,33 @@ function drawNinja() {
   const R = S.R;
   const o = hereOpt();
   const x = R.drawX - R.cam;
-  const gp = R.grap;
-  let fy = R.jump || (gp && gp.phase !== 'prompt') ? R.jumpY : footY(o);
-  let clip, fi;
+  const gp = R.grap, V = R.vert;
+  let fy = ninjaY();
+  let clip, fi, flip = false;
+  const onWall = V && (V.phase === 'climb' || (V.phase === 'enter' && !R.jump));
   if (R.dead) {
     const age = S.t - R.dead.t0;
     const c = S.M.clips.ninja_die;
     clip = 'ninja_die';
     fi = Math.min(c.frames.length - 1, Math.floor(age * 1000 / c.ms));
-    if (fi >= 3 && !R.jump && !gp) put('blood_pool', Math.min(3, (age - 0.4) * 8), x, footY(o) + 2);
-    if (R.dead.cause === 'OVERRUN' || R.dead.cause === 'FELL') fy += age * age * 120;
+    if (fi >= 3 && !R.jump && !gp && !V) put('blood_pool', Math.min(3, (age - 0.4) * 8), x, footY(o) + 2);
+    if (V || R.dead.cause === 'OVERRUN' || R.dead.cause === 'FELL') fy += age * age * 120;
+  } else if (V && V.phase === 'summit') {
+    const u = S.t - V.t0;
+    clip = u < 0.4 ? 'ninja_mantle' : 'ninja_idle';
+    fi = u < 0.4 ? Math.min(3, u / 0.4 * 4) : frameOf('ninja_idle', S.t);
+    if (u < 0.4) fy += Math.round((1 - u / 0.4) * 10);
+  } else if (V && V.phase === 'dive' && R.jump) {
+    clip = 'ninja_glide'; fi = frameOf('ninja_glide', S.t);
   } else if (gp && gp.phase === 'swing') {
     clip = 'ninja_swing'; fi = frameOf('ninja_swing', S.t);
   } else if (gp && gp.phase === 'fall') {
     clip = 'ninja_stumble'; fi = 1;
   } else if (gp && gp.phase === 'climb') {
-    clip = 'ninja_jump'; fi = 2;
+    clip = gp.vertical ? vclip('ninja_climb', R.vert.tower.wk) : 'ninja_jump'; fi = gp.vertical ? frameOf('ninja_climb', S.t) : 2;
   } else if (R.enc && R.enc.win) {
     clip = 'ninja_strike'; fi = Math.min(3, (S.t - R.enc.t0) / 0.3 * 4);
-  } else if (R.anim && S.t - R.anim.t0 < R.anim.dur) {
+  } else if (R.anim && S.t - R.anim.t0 < R.anim.dur && S.M.clips[R.anim.clip]) {
     const c = S.M.clips[R.anim.clip];
     clip = R.anim.clip;
     fi = Math.min(c.frames.length - 1, (S.t - R.anim.t0) / R.anim.dur * c.frames.length);
@@ -2297,17 +2797,26 @@ function drawNinja() {
     clip = 'ninja_strike'; fi = 3;
   } else if (R.jump) {
     clip = 'ninja_jump'; fi = Math.min(5, R.jump.t / R.jump.dur * 6);
+  } else if (onWall) {
+    // hand over hand while the words go in; hanging on while they don't
+    const cur = curOpt();
+    const moving = V.shimmy || (cur && cur.tower && Math.abs((cur.ry - FH * (R.ci / cur.len)) - R.climbY) > 0.8);
+    clip = vclip(moving ? 'ninja_climb' : 'ninja_hang', V.tower.wk);
+    fi = frameOf(clip, S.t);
   } else if (R.pending || gp || Math.abs(R.targetX - R.drawX) < 0.6 && S.t - R.lastLandT > 0.35 && R.hitstop <= 0) {
     clip = 'ninja_idle'; fi = frameOf('ninja_idle', S.t);
   } else {
     clip = 'ninja_run'; fi = frameOf('ninja_run', S.t);
   }
+  // on the right-hand corner he faces the wall to his left
+  if (V && V.side === 'right' && V.phase !== 'summit' && V.phase !== 'dive') flip = true;
+  const draw = flip ? putFlip : put;
   for (let i = 0; i < R.trail.length; i += 2) {
     const tr = R.trail[i];
-    put(clip, fi, tr.x - R.cam, fy, 0.18 + i * 0.03);
+    draw(clip, fi, tr.x - R.cam, fy, 0.18 + i * 0.03);
   }
   const alpha = R.shadowT > 0 ? (((S.t * 10) | 0) % 2 ? 0.45 : 0.7) : 1;
-  put(clip, fi, x, fy, alpha);
+  draw(clip, fi, x, fy, alpha);
 }
 
 function drawHud() {
@@ -2338,6 +2847,8 @@ function drawHud() {
   textR('small', 'ACC ' + acc + '%', 314, 12, 'mute');
   textR('small', String(Math.round(R.score)), 314, 22, 'ink');
   const maxed = R.stage >= MAX_STAGE;
+  const fo = curOpt();
+  if (R.vert && fo && fo.tower) textR('small', 'FLOOR ' + (fo.floor + 1) + '/' + fo.tower.floors, 314, 46, 'ink');
   textR('small', maxed ? 'STAGE MAX' : 'STAGE ' + R.stage, 314, 32, maxed ? 'red' : 'lamp');
   if (!maxed) {
     const into = (R.roofs % STAGE_ROOFS) / STAGE_ROOFS;
@@ -2389,19 +2900,20 @@ function drawOverlays() {
   }
   const d = R.duel;
   if (d && d.phase === 'type') {
-    const ex = enemyX(d.opt) - R.cam, fy = footY(d.opt);
+    const ex = enemyX(d.opt) - R.cam, fy = enemyFootY(d.opt) + R.camY;
     const bw = Math.max(80, d.word.length * 16 + 36);
     const bx = clamp(Math.round(ex - bw / 2), 4, LW - bw - 4), by = clamp(fy - 82, 30, 150);
     wordBox(bx, by, bw, d.word, d.typed, clamp(d.t / d.T, 0, 1), d.badT, (x, y) => put('slash', 1, x + 12, y + 17), 0.6);
   }
   const gp = R.grap;
   if (gp && gp.phase === 'prompt') {
-    const ring = hookRing(gp.next);
+    const ring = gp.vertical ? gp.ring : hookRing(gp.next);
+    const ringY = ring.y + R.camY;
     const bw = Math.max(90, gp.word.length * 16 + 36);
-    const bx = clamp(Math.round(ring.x - R.cam - bw / 2), 4, LW - bw - 4), by = clamp(ring.y - 44, 30, 140);
+    const bx = clamp(Math.round(ring.x - R.cam - bw / 2), 4, LW - bw - 4), by = clamp(ringY - 44, 30, 140);
     wordBox(bx, by, bw, gp.word, gp.typed, clamp(gp.t / gp.T, 0, 1), gp.badT, (x, y) => blit('hook', x + 9, y + 15), 0.6);
     // the ring flashes so the eye knows where the rope goes
-    if (((tt * 6) | 0) % 2) frame1(ring.x - R.cam - 5, ring.y - 5, 11, 11, COL.gold);
+    if (((tt * 6) | 0) % 2) frame1(ring.x - R.cam - 5, ringY - 5, 11, 11, COL.gold);
   }
   // a banner never covers a word the player must type: it waits
   const boxUp = R.hazard || (R.duel && R.duel.phase === 'type') || (R.grap && R.grap.phase === 'prompt') || R.menu;
@@ -2423,6 +2935,19 @@ function drawOverlays() {
       g.globalAlpha = 1;
     }
   }
+  if (R.towerBanner && !boxUp) {
+    const u = tt - R.towerBanner.t0;
+    if (u > 2.4) R.towerBanner = null;
+    else {
+      const a = u < 0.25 ? u / 0.25 : u > 1.9 ? (2.4 - u) / 0.5 : 1;
+      const g = ctx();
+      g.globalAlpha = clamp(a, 0, 1);
+      rect(0, 76, LW, 28, 'rgba(4,6,12,0.6)');
+      textC('large', R.towerBanner.name, 160, 75, 'gold');
+      textC('small', 'climb, or be caught', 160, 92, 'ink');
+      g.globalAlpha = 1;
+    }
+  } else if (R.towerBanner) R.towerBanner.t0 += S.dt;
   if (R.stageBanner && !boxUp) {
     const u = tt - R.stageBanner.t0;
     if (u > 2.4) R.stageBanner = null;
@@ -2481,8 +3006,9 @@ function drawLoading() {
 const KATA = {
   name: 'kata',
   title: 'KATA',
-  // read-only handle for tooling; the game never reads it
+  // read-only handles for tooling; the game never reads them
   get state() { return S; },
+  get dev() { return { genTower, ensureRoad, newRun }; },
 
   enter() {
     loadRank();

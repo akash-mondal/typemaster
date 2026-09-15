@@ -658,3 +658,133 @@ def tiles():
 if __name__ == '__main__':
     for k, v in tiles().items():
         print('%-20s %dx%d' % (k, v.w, v.h))
+
+
+# ===================================================================== TOWERS
+# The buildings the road climbs. Each tower is drawn floor by floor from: a
+# facade tile (16x16, tiles both ways), a ledge strip that juts out at every
+# floor, an open window the enemies lean from, and a sill drawn over them.
+
+def _facade(base, dark, light, seed, pattern):
+    g = G(16, 16)
+    rnd = random.Random(seed)
+    for y in range(16):
+        for x in range(16):
+            g.put(x, y, base)
+    if pattern == 'planks':          # dark vertical boards
+        for x in (0, 8):
+            g.rect(x, 0, x, 15, dark)
+        g.put(4, 5, light); g.put(12, 11, light)
+    elif pattern == 'bamboo':
+        for x in range(16):
+            col = dark if x % 4 == 0 else light if x % 4 == 2 else base
+            g.rect(x, 0, x, 15, col)
+        g.rect(0, 11, 15, 11, rgb('#3C3018'))
+    elif pattern == 'rock':
+        for _ in range(9):
+            x, y = rnd.randrange(16), rnd.randrange(16)
+            g.rect(x, y, min(15, x + rnd.randint(1, 4)), y, dark)
+        for _ in range(5):
+            g.put(rnd.randrange(16), rnd.randrange(16), light)
+    elif pattern == 'plaster':
+        for y in range(16):
+            for x in range(16):
+                if BAYER[y % 4][x % 4] < 2:
+                    g.put(x, y, dark)
+    elif pattern == 'stone':
+        for y in (0, 8):
+            g.rect(0, y, 15, y, dark)
+        g.rect(4, 1, 4, 7, dark); g.rect(12, 9, 12, 15, dark)
+        g.put(2, 3, light); g.put(9, 12, light)
+    return g
+
+
+def _ledge(top, mid, low, snow=None):
+    g = G(64, 6)
+    g.rect(0, 0, 63, 0, top)
+    g.rect(0, 1, 63, 3, mid)
+    g.rect(0, 4, 63, 5, low)
+    for x in range(0, 64, 8):
+        g.put(x, 4, top)
+    if snow:
+        for x in range(64):
+            if (x * 7) % 5 != 0:
+                g.put(x, 0, snow)
+            if (x * 3) % 7 == 0:
+                g.put(x, 1, snow)
+    return g
+
+
+def _window(frame, frame2, inner, lit=None):
+    g = G(18, 20)
+    g.rect(0, 0, 17, 19, frame)
+    g.rect(2, 2, 15, 19, inner)
+    g.rect(1, 1, 16, 1, frame2)
+    if lit:
+        g.rect(3, 12, 14, 19, lit)
+    return g
+
+
+def _sill(col, col2):
+    g = G(22, 4)
+    g.rect(0, 0, 21, 1, col)
+    g.rect(1, 2, 20, 3, col2)
+    return g
+
+
+def tower_tiles():
+    t = {}
+    # night city pagoda: dark wood, vermilion pillars at the corners
+    t['facade_city'] = _facade(rgb('#161C2A'), rgb('#0A0E16'), rgb('#26304A'), 81, 'planks')
+    t['ledge_city'] = ST.roof_face((rgb('#1E2230'), rgb('#2C3244'), rgb('#3C445A'), rgb('#505A72')), 8)
+    t['win_city'] = _window(rgb('#3A2A1C'), rgb('#6A4A2C'), rgb('#07090E'))
+    t['sill_city'] = _sill(rgb('#6A4A2C'), rgb('#3A2A1C'))
+    t['pillar_city'] = G(3, 16)
+    t['pillar_city'].rect(0, 0, 2, 15, ST.VERM)
+    t['pillar_city'].rect(2, 0, 2, 15, rgb('#8A1A1E'))
+    # bamboo scaffold tower
+    t['facade_grove'] = _facade(rgb('#4A5E28'), rgb('#2E3C18'), rgb('#7A9A40'), 82, 'bamboo')
+    t['ledge_grove'] = _ledge(rgb('#A8C060'), rgb('#5E7430'), rgb('#3A4A22'))
+    t['win_grove'] = _window(rgb('#3C3018'), rgb('#7A6230'), rgb('#0C120A'))
+    t['sill_grove'] = _sill(rgb('#86A044'), rgb('#3A4A22'))
+    t['pillar_grove'] = G(3, 16)
+    t['pillar_grove'].rect(0, 0, 2, 15, rgb('#5E7430'))
+    for y in (3, 11):
+        t['pillar_grove'].rect(0, y, 2, y, rgb('#9C8040'))
+    # snow cliff
+    t['facade_snow'] = _facade(rgb('#2E3650'), rgb('#1C2236'), rgb('#6A7898'), 83, 'rock')
+    t['ledge_snow'] = _ledge(rgb('#DCE6F4'), rgb('#4A5470'), rgb('#232A40'), snow=rgb('#DCE6F4'))
+    t['win_snow'] = _window(rgb('#3A4052'), rgb('#7E879C'), rgb('#06080E'))
+    t['sill_snow'] = _sill(rgb('#DCE6F4'), rgb('#5A6276'))
+    t['pillar_snow'] = G(3, 16)
+    t['pillar_snow'].rect(0, 0, 2, 15, rgb('#1C2236'))
+    t['pillar_snow'].put(1, 4, rgb('#DCE6F4')); t['pillar_snow'].put(0, 12, rgb('#A8B8D2'))
+    # castle keep
+    t['facade_castle'] = _facade(rgb('#D8D0C2'), rgb('#B4AC9E'), rgb('#E8E2D6'), 84, 'plaster')
+    t['ledge_castle'] = ST.roof_face((rgb('#121216'), rgb('#1E1E26'), rgb('#2E2E38'), rgb('#44444E')), 8)
+    t['win_castle'] = _window(rgb('#8E8676'), rgb('#B4AC9E'), rgb('#0A0A0E'))
+    t['sill_castle'] = _sill(rgb('#44444E'), rgb('#1E1E26'))
+    t['pillar_castle'] = G(3, 16)
+    t['pillar_castle'].rect(0, 0, 2, 15, rgb('#2E2E38'))
+    # lighthouse
+    t['facade_harbour'] = _facade(rgb('#5A4A48'), rgb('#3A2E2E'), rgb('#7A6660'), 85, 'stone')
+    t['ledge_harbour'] = _ledge(rgb('#8A7870'), rgb('#5A4A48'), rgb('#2E2626'))
+    t['win_harbour'] = _window(rgb('#7A4E2E'), rgb('#A87A4E'), rgb('#0A0608'), lit=None)
+    t['sill_harbour'] = _sill(rgb('#8A7870'), rgb('#3A2E2E'))
+    t['pillar_harbour'] = G(3, 16)
+    t['pillar_harbour'].rect(0, 0, 2, 15, rgb('#3A2E2E'))
+    # falling debris: a roof tile, a rock, a bamboo pole, a crate
+    t['debris_tile'] = stamp_tile(8, 5, [".######.", "#oooooo#", "#o####o#", ".######.", "..#..#.."],
+                                  {'#': rgb('#2C3244'), 'o': rgb('#505A72')})
+    t['debris_rock'] = stamp_tile(8, 7, ["..###...", ".#ooo##.", "#oooOoo#", "#ooooo##", ".#ooo#..", "..###...", "........"],
+                                  {'#': rgb('#1C2236'), 'o': rgb('#4A5470'), 'O': rgb('#DCE6F4')})
+    return t
+
+
+_tiles_before_towers = tiles
+
+
+def tiles():
+    out = _tiles_before_towers()
+    out.update(tower_tiles())
+    return out
