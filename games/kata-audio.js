@@ -683,9 +683,16 @@ function play(name, opts) {
     if (SEQ.pending && SEQ.pending.name === name && !opts.now) return;          // already on its way
     if (!SEQ.cur || opts.now) {
       if (SEQ.cur) { const o = SEQ.cur.out; o.gain.setValueAtTime(o.gain.value, AC.currentTime); o.gain.linearRampToValueAtTime(0, AC.currentTime + 0.3); setTimeout(() => { try { o.disconnect(); } catch (e) {} }, 2500); }
-      SEQ.step = 0;
-      SEQ.nextTime = AC.currentTime + 0.06;
-      SEQ.cur = startSong(name, SEQ.nextTime, opts.fade || 0.4);
+      // `at`: join the song part-way through, on its grid, as if it had been playing
+      // all along (a select screen switching titles keeps its trailer in time)
+      const stepDur = 60 / SONGS[name].bpm / 4;
+      const loopLen = compile(SONGS[name]).length * stepDur;
+      const at = opts.at > 0 && isFinite(opts.at) ? opts.at % loopLen : 0;
+      const k = Math.ceil(at / stepDur - 1e-6);
+      const t0 = AC.currentTime + 0.04;
+      SEQ.step = k;
+      SEQ.nextTime = t0 + (k * stepDur - at);
+      SEQ.cur = startSong(name, t0, opts.fade || 0.4);
       SEQ.cur.origin = 0;
       SEQ.pending = null;
     } else {

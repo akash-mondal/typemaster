@@ -1327,23 +1327,40 @@ function showcaseScene(g, W, H, fn) {
 }
 let showLast = 0, showWatch = null, showLap = null, showPrev = 0;
 function showcaseAudio(t) {
-  showLast = performance.now();
-  if (S.active) return;
+  const nowMs = performance.now();
+  if (S.active) return;                                  // in the game, the game has its own music
+  // a title that has just come into focus starts its track at once, at the point
+  // in the loop the trailer is showing, so it is in time from the first beat
+  const fresh = showLap == null || nowMs - showPrev > 250;
   const lap = Math.floor(t / SHOW_LOOP);
-  const fresh = showLap == null || performance.now() - showPrev > 400;
   const wrapped = !fresh && lap !== showLap;
-  showLap = lap; showPrev = performance.now();
+  showLap = lap;
+  showPrev = nowMs;
+  showLast = nowMs;
+  // tell any other title's showcase to fall silent now, not when its watchdog notices
+  if (fresh && typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('typemaxx:showcase', { detail: 'nova' }));
   if (!NovaAudio.ready) return;
-  if (MUS.current !== 'intro') {
-    if (wrapped || (fresh && t % SHOW_LOOP < 0.5)) MUS.play('intro', { now: true, restart: true, fade: 0.05 });
-  } else if (wrapped) {
+  if (MUS.current !== 'intro') MUS.play('intro', { now: true, restart: true, fade: 0.25, at: t % SHOW_LOOP });
+  else if (wrapped) {
+    // on every loop point, check the track is still on the picture; if it drifted, rejoin it
     const p = MUS.position, bar = 60 / p.bpm * 4;
     const phase = ((p.step / 16) * bar) % SHOW_LOOP;
-    if (Math.min(phase, SHOW_LOOP - phase) > 0.3) MUS.play('intro', { now: true, restart: true, fade: 0.05 });
+    if (Math.min(phase, SHOW_LOOP - phase) > 0.3) MUS.play('intro', { now: true, restart: true, fade: 0.1, at: t % SHOW_LOOP });
   }
-  if (!showWatch) showWatch = setInterval(() => {
-    if (performance.now() - showLast > 400) { if (MUS.current === 'intro') MUS.stop(0.6); clearInterval(showWatch); showWatch = null; }
-  }, 200);
+  if (!showWatch) {
+    showWatch = setInterval(() => {
+      if (performance.now() - showLast > 250) {
+        if (MUS.current === 'intro') MUS.stop(0.3);
+        clearInterval(showWatch); showWatch = null;
+      }
+    }, 100);
+  }
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('typemaxx:showcase', e => {
+    if (e.detail === 'nova' || S.active) return;
+    if (MUS.current === 'intro') MUS.stop(0.3);
+  });
 }
 
 const NOVA_SHOWCASE = {

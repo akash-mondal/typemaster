@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>select screen: title music handover</title>
+<canvas id="c" width="640" height="480" style="image-rendering:pixelated"></canvas>
+<script type="module">
+// Two titles on one select screen, as Commonsmade draws them: only the focused
+// tile's showcase is painted. window.focusTile(0|1) switches.
+import KATA from '../../games/kata.js';
+import NOVA from '../../games/nova.js';
+const g = document.getElementById('c').getContext('2d');
+const games = [KATA, NOVA];
+window.GAMES = games;
+window.focus = 0;
+window.focusTile = i => { window.focus = i; };
+const t0 = performance.now();
+function frame(now) {
+  requestAnimationFrame(frame);
+  const t = (now - t0) / 1000;
+  games[window.focus].showcase.background(g, 640, 480, t, 0.4);
+}
+requestAnimationFrame(frame);
+</script>
