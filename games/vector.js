@@ -200,7 +200,7 @@ function wallTile(key) {
   const W = Math.round(HX), H = WALL_H;
   const c = canvas(W, H + 2), g = c.getContext('2d');
   for (let y = 0; y < H; y++) {
-    const u = y / H, k = 0.42 + 0.58 * Math.pow(1 - u, 1.3);
+    const u = y / H, k = 0.32 + 0.43 * Math.pow(1 - u, 1.3);
     g.fillStyle = css([col[0] * k, col[1] * k, col[2] * k]);
     g.fillRect(0, y + 1, W, 1);
   }
@@ -761,9 +761,9 @@ function applyBloom(strength) {
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   ctx.imageSmoothingEnabled = true;
-  ctx.globalAlpha = 0.32 * strength; ctx.drawImage(glow, 0, 0, LW, LH);
-  ctx.globalAlpha = 0.42 * strength; ctx.drawImage(bloom2, 0, 0, LW, LH);
-  ctx.globalAlpha = 0.5 * strength; ctx.drawImage(bloom3, 0, 0, LW, LH);
+  ctx.globalAlpha = 0.16 * strength; ctx.drawImage(glow, 0, 0, LW, LH);
+  ctx.globalAlpha = 0.21 * strength; ctx.drawImage(bloom2, 0, 0, LW, LH);
+  ctx.globalAlpha = 0.25 * strength; ctx.drawImage(bloom3, 0, 0, LW, LH);
   ctx.restore();
   ctx.imageSmoothingEnabled = false;
 }
@@ -1307,7 +1307,7 @@ const SHOW_LOOP = 10, SHOW_INTRO = 1.5;
 // so while it is on screen the CRT is softened (engine v1.51: TYPEMAXX.crt)
 // the trailer is a lot of light on black: half the tube's gain, no halo. The game keeps a little more.
 const SOFT_TUBE = { grille: 0, scanDepth: 0.06, chroma: 0.25, bar: 0, flicker: 0, grain: 0.006, noise: 0, vignette: 0.32, halo: 0, gain: 0.67 };
-const SOFT_TUBE_GAME = { grille: 0, scanDepth: 0.06, chroma: 0.25, bar: 0, flicker: 0, grain: 0.006, noise: 0, vignette: 0.32, halo: 0.03, gain: 1.0 };
+const SOFT_TUBE_GAME = { grille: 0, scanDepth: 0.06, chroma: 0.25, bar: 0, flicker: 0, grain: 0.006, noise: 0, vignette: 0.32, halo: 0, gain: 0.67 };
 function softTube(on) {
   if (typeof window === 'undefined' || !window.TYPEMAXX) return;
   const look = G.active ? SOFT_TUBE_GAME : SOFT_TUBE;
