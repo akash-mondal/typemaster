@@ -24,22 +24,26 @@ PX_PER_UNIT = 24 / (2 * math.cos(math.radians(45)))
 UP = math.sin(math.radians(60))   # screen pixels per world unit of height, per px-per-unit
 
 JOBS = [
-    ("bike.py", "rider", ["16"]), ("bike.py", "warden", ["16"]), ("bike.py", "derez", ["8"]),
+    ("bike.py", "rider", ["16"]), ("bike.py", "warden", ["16"]), ("bike.py", "derez", ["8"]), ("bike.py", "runner", ["8"]),
     ("models.py", "boss", []), ("models.py", "cell", []), ("models.py", "pylon", []),
 ]
 # render size and camera look height per model family, to find the origin pixel
-FAMILY = {"rider": (128, 0.0), "warden": (128, 0.0), "derez": (128, 0.0), "boss": (384, 2.2), "cell": (48, 0.6), "pylon": (128, 1.8)}
+FAMILY = {"runner": (128, 0.0), "rider": (128, 0.0), "warden": (128, 0.0), "derez": (128, 0.0), "boss": (384, 2.2), "cell": (48, 0.6), "pylon": (128, 1.8)}
+
+
+SCALES = [(1.0, ""), (0.5, "_s")]   # near camera, far camera
 
 
 def render():
-    for script, variant, extra in JOBS:
-        out = os.path.join(RAW, variant)
+    for scale, suffix in SCALES:
+      for script, variant, extra in JOBS:
+        out = os.path.join(RAW + suffix, variant)
         os.makedirs(out, exist_ok=True)
         cmd = ["blender", "-b", "-P", os.path.join(HERE, script), "--", out, variant, *extra]
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        r = subprocess.run(cmd, capture_output=True, text=True, env={**os.environ, "VECTOR_SCALE": str(scale)})
         if "done" not in r.stdout:
             print(r.stdout[-2000:], r.stderr[-2000:]); raise SystemExit("render failed: " + variant)
-        print("rendered", variant)
+        print("rendered", variant, scale)
 
 
 def frames():
@@ -52,6 +56,9 @@ def frames():
     for d in range(8):
         for f in range(12):
             yield f"derez_{d:02d}_{f:02d}", "derez", f"{d:02d}_{f:02d}"
+    for d in range(8):
+        for f in range(8):
+            yield f"runner_{d:02d}_{f}", "runner", f"{d:02d}_{f}"
     for c in range(2):
         for f in range(12):
             yield f"boss_{c}_{f:02d}", "boss", f"boss_{c}_{f:02d}"
@@ -104,15 +111,17 @@ def main():
     if "--skip-render" not in sys.argv:
         render()
     items = []
-    for key, fam, name in frames():
-        size, look = FAMILY[fam]
-        body, mask = clean(os.path.join(RAW, fam), name)
-        box = body.getbbox()
-        if not box:
-            box = (size // 2, size // 2, size // 2 + 1, size // 2 + 1)
-        ox = size / 2 - box[0]
-        oy = size / 2 + look * PX_PER_UNIT * UP - box[1]
-        items.append((key, body.crop(box), mask.crop(box), (round(ox), round(oy))))
+    for scale, suffix in SCALES:
+        for key, fam, name in frames():
+            size, look = FAMILY[fam]
+            size = int(round(size * scale))
+            body, mask = clean(os.path.join(RAW + suffix, fam), name)
+            box = body.getbbox()
+            if not box:
+                box = (size // 2, size // 2, size // 2 + 1, size // 2 + 1)
+            ox = size / 2 - box[0]
+            oy = size / 2 + look * PX_PER_UNIT * scale * UP - box[1]
+            items.append((key + suffix, body.crop(box), mask.crop(box), (round(ox), round(oy))))
     places, height = pack([(k, b, m, o) for k, b, m, o in items])
     sheet = Image.new("RGBA", (2048, height)); msheet = Image.new("RGB", (2048, height))
     manifest = {"cell": [48, 24], "sprites": {}}

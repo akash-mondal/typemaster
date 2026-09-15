@@ -9,6 +9,8 @@ from mathutils import Vector
 
 CELL_PX = 24                       # half a 48x24 cell diamond, in pixels along an axis
 PX_PER_UNIT = CELL_PX / (2 * math.cos(math.radians(45)))   # one cell = 2 world units
+# VECTOR_SCALE=0.5 renders the same framing at half the pixels: the far camera's sprite set
+SCALE = float(os.environ.get("VECTOR_SCALE", "1"))
 
 
 def reset():
@@ -150,6 +152,7 @@ def line_along(scene, pts3, radius):
 def rig(scene, size, look_z=0.0):
     """Orthographic 2:1 dimetric camera, a key sun and a back rim sun; aliased EEVEE output."""
     cam_data = bpy.data.cameras.new("cam"); cam_data.type = 'ORTHO'; cam_data.ortho_scale = size / PX_PER_UNIT
+    size = int(round(size * SCALE))
     cam = bpy.data.objects.new("cam", cam_data); scene.collection.objects.link(cam); scene.camera = cam
     cam.rotation_euler = (math.radians(60), 0, math.radians(45))
     d = cam.rotation_euler.to_matrix() @ Vector((0, 0, 1))

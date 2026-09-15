@@ -15,8 +15,6 @@ import Audio from './vector-audio.js';
 
 const BASE = new URL('../assets/vector/', import.meta.url).href;
 const LW = 480, LH = 360;
-const HX = 24, HY = 12;         // half a cell diamond
-const WALL_H = 22, DECK_H = 20;
 const TAU = Math.PI * 2;
 const DX = [1, 0, -1, 0], DY = [0, 1, 0, -1];
 const MUS = Audio.music;
@@ -157,251 +155,379 @@ function panel(x, y, w, h, a, edge) {
 }
 
 // ---------------------------------------------------------------- the world on screen
-function iso(x, y, level) { return [LW / 2 + (x + y) * HX - G.cam.x, LH / 2 + (x - y) * HY - (level || 0) * DECK_H - G.cam.y]; }
+// Two cameras: near (zoom 1, 48x24 cells) and far (zoom 0.5, with the half-size sprite set).
+let Z = 1, HX = 24, HY = 12, WALL_H = 22, TIER_H = 22, SFX = '';
+function setZoom(z) { Z = z; HX = 24 * z; HY = 12 * z; WALL_H = Math.round(22 * z); TIER_H = Math.round(22 * z); SFX = z < 1 ? '_s' : ''; }
+function iso(x, y, level) { return [LW / 2 + (x + y) * HX - G.cam.x, LH / 2 + (x - y) * HY - (level || 0) * TIER_H - G.cam.y]; }
 function bikePos(b) {
   if (b.laid) return [b.x - DX[b.d] * (1 - b.p), b.y - DY[b.d] * (1 - b.p)];
   return [b.x + DX[b.d] * b.p, b.y + DY[b.d] * b.p];
 }
-function bikeLevel(b) {
-  // a ramp climb shows as a smooth lift
+// the height a rider is drawn at: ramps are slopes, drops ease down, jumps arc
+function bikeLevel(b, S) {
+  S = S || G.S;
+  const [px, py] = bikePos(b);
+  if (b.air > 0) {
+    const u = clamp((b.dist - b.airStart) / Sim.JUMP, 0, 1);
+    const to = b.airTo >= 0 ? b.airTo : b.airFrom - 3;
+    return lerp(b.airFrom, to, u) + 1.8 * Math.sin(Math.PI * u);
+  }
+  if (S) {
+    const lv = surfaceAt(S, px, py);
+    if (lv != null) return lv;
+  }
   if (b.laid && b.fromLevel !== b.level) return lerp(b.fromLevel, b.level, clamp((b.p - 0.5) * 2, 0, 1));
   return b.level;
 }
+// the terrain height under a point, ramps sloped
+function surfaceAt(S, px, py) {
+  const A = S.A, n = A.n;
+  const x = Math.round(px), y = Math.round(py);
+  if (x < 0 || y < 0 || x >= n || y >= n) return null;
+  const i = y * n + x, h = A.h[i];
+  if (h < 0) return null;
+  const r = A.ramp[i];
+  if (r >= 0) return h + 0.5 + clamp((px - x) * DX[r] + (py - y) * DY[r], -0.5, 0.5);
+  return h;
+}
 function bikeKey(b) { return b.kind === 'player' ? 'player' : b.kind; }
 
-// a wall tile per colour: a lit face under a bright crest, faint scan columns
+// a wall tile per colour and zoom: a lit face under a bright crest, faint scan columns
 function wallTile(key) {
-  if (G.wallTiles[key]) return G.wallTiles[key];
+  const k = key + '@' + Z;
+  if (G.wallTiles[k]) return G.wallTiles[k];
   const col = COL[key] || COL.player;
-  const c = canvas(HX, WALL_H + 2), g = c.getContext('2d');
-  for (let y = 0; y < WALL_H; y++) {
-    const u = y / WALL_H;
-    const a = 0.18 + 0.72 * Math.pow(1 - u, 2.3);
-    g.fillStyle = css([col[0] * 0.3 + col[0] * 0.7 * (1 - u), col[1] * 0.3 + col[1] * 0.7 * (1 - u), col[2] * 0.3 + col[2] * 0.7 * (1 - u)], a);
-    g.fillRect(0, y + 1, HX, 1);
+  const W = Math.round(HX), H = WALL_H;
+  const c = canvas(W, H + 2), g = c.getContext('2d');
+  for (let y = 0; y < H; y++) {
+    const u = y / H, k = 0.42 + 0.58 * Math.pow(1 - u, 1.3);
+    g.fillStyle = css([col[0] * k, col[1] * k, col[2] * k]);
+    g.fillRect(0, y + 1, W, 1);
   }
-  g.fillStyle = 'rgba(255,255,255,0.10)'; for (let x = 3; x < HX; x += 6) g.fillRect(x, 3, 1, WALL_H - 3);
-  g.fillStyle = css([Math.min(255, col[0] * 0.4 + 170), Math.min(255, col[1] * 0.4 + 170), Math.min(255, col[2] * 0.4 + 170)]); g.fillRect(0, 0, HX, 2);
-  g.fillStyle = css(col, 0.9); g.fillRect(0, WALL_H, HX, 2);
-  const glowTile = canvas(HX, WALL_H + 2), gg = glowTile.getContext('2d');
-  gg.fillStyle = css(col); gg.fillRect(0, 0, HX, 3); gg.fillStyle = css(col, 0.35); gg.fillRect(0, 3, HX, WALL_H - 3); gg.fillStyle = css(col, 0.7); gg.fillRect(0, WALL_H, HX, 2);
-  return (G.wallTiles[key] = { face: c, glow: glowTile });
+  const hot = [Math.min(255, col[0] * 0.3 + 190), Math.min(255, col[1] * 0.3 + 190), Math.min(255, col[2] * 0.3 + 190)];
+  g.fillStyle = css(hot); g.fillRect(0, 0, W, Z < 1 ? 2 : 3);
+  g.fillStyle = css(col); g.fillRect(0, H, W, 2);
+  // its reflection, already upside down and fading
+  const r = canvas(W, H), rg = r.getContext('2d');
+  for (let y = 0; y < H; y++) { rg.fillStyle = css(col, 0.28 * Math.pow(1 - y / H, 2)); rg.fillRect(0, y, W, 1); }
+  const glowTile = canvas(W, H + 2), gg = glowTile.getContext('2d');
+  gg.fillStyle = css(hot); gg.fillRect(0, 0, W, 3); gg.fillStyle = css(col, 0.55); gg.fillRect(0, 3, W, H - 3); gg.fillStyle = css(col); gg.fillRect(0, H, W, 2);
+  return (G.wallTiles[k] = { face: c, glow: glowTile, refl: r, w: W });
 }
-function wallSegment(ax, ay, bx, by, level, key, alpha) {
-  const [x0, y0] = iso(ax, ay, level), [x1, y1] = iso(bx, by, level);
+function wallSegment(ax, ay, la, bx, by, lb, key, alpha) {
+  const [x0, y0] = iso(ax, ay, la), [x1, y1] = iso(bx, by, lb);
   const sdx = x1 - x0, sdy = y1 - y0;
   if (Math.abs(sdx) < 0.5) return;
   const T = wallTile(key);
-  ctx.save(); ctx.globalAlpha = alpha == null ? 1 : alpha;
-  ctx.transform(sdx / HX, sdy / HX, 0, 1, x0, y0 - WALL_H);
+  const A = alpha == null ? 1 : alpha;
+  ctx.save(); ctx.globalAlpha = A;
+  ctx.transform(sdx / T.w, sdy / T.w, 0, 1, x0, y0);
+  ctx.drawImage(T.refl, 0, 0);
+  ctx.restore();
+  ctx.save(); ctx.globalAlpha = A;
+  ctx.transform(sdx / T.w, sdy / T.w, 0, 1, x0, y0 - WALL_H);
   ctx.drawImage(T.face, 0, 0);
   ctx.restore();
   if (glowCtx) {
-    glowCtx.save(); glowCtx.globalAlpha = (alpha == null ? 1 : alpha) * 0.85;
-    glowCtx.transform(sdx / HX / 2, sdy / HX / 2, 0, 0.5, x0 / 2, (y0 - WALL_H) / 2);
+    glowCtx.save(); glowCtx.globalAlpha = A;
+    glowCtx.transform(sdx / T.w / 2, sdy / T.w / 2, 0, 0.5, x0 / 2, (y0 - WALL_H) / 2);
     glowCtx.drawImage(T.glow, 0, 0);
     glowCtx.restore();
   }
 }
 
-// ---------------------------------------------------------------- the floor (pre-rendered per sector)
-function buildFloor(S) {
+// ---------------------------------------------------------------- the stadium: terrain in cached chunks
+// The arena floats in a dark city. Every cell is a block at its tier: a top face and the two
+// front faces the camera can see. Beyond the far edges rise the stands, with their crowd.
+const CH = 12;              // cells per chunk side
+const STAND = 9;            // cells of stands and gap beyond the arena
+const TIER_TOP = [[3, 5, 10], [4, 7, 13], [5, 9, 16]];
+const TIER_EDGE = [[60, 160, 200], [120, 220, 245], [190, 240, 255]];
+function cellHeight(S, x, y) {
+  // arena cells: their tier (void -9). Outside: a gap, then stands on the two far sides only.
   const A = S.A, n = A.n;
-  const w = (n * 2) * HX + 80, h = n * 2 * HY + 120;
+  if (x >= 0 && y >= 0 && x < n && y < n) { const h = A.h[y * n + x]; return h < 0 ? -9 : h; }
+  const far = x < 0 ? -x : y >= n ? y - n + 1 : 0;
+  const near = x >= n || y < 0;
+  if (near || far < 3 || x < -STAND || y > n - 1 + STAND) return -9;
+  if (x >= 0 && y < n) return -9;
+  return Math.min(5, 1 + Math.floor((far - 3) / 1.5));
+}
+// the height of one corner of a cell (corners: 0 top, 1 right, 2 bottom, 3 left), ramps included
+const CORNER = [[-0.5, 0.5], [0.5, 0.5], [0.5, -0.5], [-0.5, -0.5]];
+function cornerHeight(S, x, y, c) {
+  const h = cellHeight(S, x, y);
+  const A = S.A, n = A.n;
+  if (h >= 0 && x >= 0 && y >= 0 && x < n && y < n) {
+    const r = A.ramp[y * n + x];
+    if (r >= 0) return h + (CORNER[c][0] * DX[r] + CORNER[c][1] * DY[r] > 0 ? 1 : 0);
+  }
+  return h;
+}
+function drawCellTerrain(g, S, x, y, sx, sy) {
+  const h = cellHeight(S, x, y);
+  if (h < -1) return;
+  const A = S.A, n = A.n, inArena = x >= 0 && y >= 0 && x < n && y < n;
+  const i = inArena ? y * n + x : -1;
+  const ch = [0, 1, 2, 3].map(c => cornerHeight(S, x, y, c));
+  const P = c => [sx + (c === 1 ? HX : c === 3 ? -HX : 0), sy + (c === 0 ? -HY : c === 2 ? HY : 0) - ch[c] * TIER_H];
+  const stand = !inArena;
+  const tier = Math.min(2, Math.max(0, h));
+  // front faces: black glass, lit only along the top edge
+  const faces = [[1, 2, x + 1, y, 3, 0], [2, 3, x, y - 1, 0, 1]];
+  faces.forEach(([c1, c2, nx, ny, nc1, nc2], fi) => {
+    const nh1 = cellHeight(S, nx, ny) < -1 ? -5 : cornerHeight(S, nx, ny, nc1);
+    const nh2 = cellHeight(S, nx, ny) < -1 ? -5 : cornerHeight(S, nx, ny, nc2);
+    if (ch[c1] <= nh1 && ch[c2] <= nh2) return;
+    const [ax, ay] = P(c1), [bx, by] = P(c2);
+    const ay2 = ay + (ch[c1] - Math.min(ch[c1], nh1)) * TIER_H, by2 = by + (ch[c2] - Math.min(ch[c2], nh2)) * TIER_H;
+    const abyss = nh1 < -1;
+    const grd = g.createLinearGradient(0, Math.min(ay, by), 0, Math.max(ay2, by2));
+    grd.addColorStop(0, fi === 0 ? '#0b1320' : '#070c16');
+    grd.addColorStop(1, '#010206');
+    g.fillStyle = grd;
+    g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.lineTo(bx, by2); g.lineTo(ax, ay2); g.closePath(); g.fill();
+    g.strokeStyle = stand ? 'rgba(90,130,170,0.35)' : css(TIER_EDGE[tier], 0.95);
+    g.lineWidth = Z < 1 ? 1 : 2;
+    g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke();
+  });
+  // the top: glass
+  g.fillStyle = css(stand ? [2, 3, 7] : TIER_TOP[tier]);
+  g.beginPath(); for (let c = 0; c < 4; c++) { const [px, py] = P(c); c ? g.lineTo(px, py) : g.moveTo(px, py); } g.closePath(); g.fill();
+  if (stand) {
+    // the stands are silhouettes; a few seat lights along each step
+    if (hash(x * 7, y * 13) < 0.22) { const [px, py] = [sx, sy - h * TIER_H]; g.fillStyle = 'rgba(120,200,230,0.35)'; g.fillRect(Math.round(px), Math.round(py), 1, 1); }
+    return;
+  }
+  const top = P(0), right = P(1), left = P(3);
+  if (A.mod[i] > 1) { g.fillStyle = 'rgba(40,220,190,0.07)'; g.beginPath(); for (let c = 0; c < 4; c++) { const [px, py] = P(c); c ? g.lineTo(px, py) : g.moveTo(px, py); } g.closePath(); g.fill(); }
+  if (A.ramp[i] >= 0) {
+    g.strokeStyle = css(TIER_EDGE[tier], 0.3); g.lineWidth = 1;
+    for (let k = 1; k < 4; k++) {
+      const u = k / 4 - 0.5, r = A.ramp[i];
+      const ox = DX[r] * u, oy = DY[r] * u, px = -DY[r] * 0.45, py = DX[r] * 0.45;
+      const a2 = iso0(sx, sy, ox - px, oy - py, h + 0.5 + u), b2 = iso0(sx, sy, ox + px, oy + py, h + 0.5 + u);
+      g.beginPath(); g.moveTo(a2[0], a2[1]); g.lineTo(b2[0], b2[1]); g.stroke();
+    }
+  }
+  // the grid: hairlines on every cell, a clear line every fourth
+  g.lineWidth = 1;
+  const major = (x + 1) % 4 === 0, majorY = y % 4 === 0;
+  g.strokeStyle = 'rgba(50,120,150,0.1)';
+  g.beginPath(); g.moveTo(...left); g.lineTo(...top); g.lineTo(...right); g.stroke();
+  if (major) { g.strokeStyle = 'rgba(80,190,225,0.5)'; g.beginPath(); g.moveTo(...top); g.lineTo(...right); g.stroke(); }
+  if (majorY) { g.strokeStyle = 'rgba(80,190,225,0.5)'; g.beginPath(); g.moveTo(...left); g.lineTo(...top); g.stroke(); }
+}
+const iso0 = (sx, sy, dx, dy, lv) => [sx + (dx + dy) * HX, sy + (dx - dy) * HY - lv * TIER_H + 0];
+function chunkCanvas(S, cx, cy) {
+  const key = `${Z}:${cx}:${cy}`;
+  const cache = G.chunks || (G.chunks = new Map());
+  if (cache.has(key)) { const c = cache.get(key); cache.delete(key); cache.set(key, c); return c; }
+  const x0 = cx * CH, y0 = cy * CH;
+  const w = Math.ceil(2 * CH * HX + 8), h = Math.ceil(2 * CH * HY + 8 * TIER_H + 90 * Z);
+  // the canvas's own origin: cell (x0, y0) sits at (ox, oy) inside it
+  const ox = Math.ceil(HX + 4) - (0) , oy = Math.ceil((CH - 1) * HY + HY + 6 * TIER_H + 4);
   const c = canvas(w, h), g = c.getContext('2d');
-  const ox = 40 + n * HX - HX, oy = 60 + n * HY;   // screen position of cell (0, 0) inside the canvas... centred
-  const P = (x, y) => [ox + (x + y) * HX - (n - 1) * HX, oy + (x - y) * HY];
-  // plate
-  g.fillStyle = '#04060e';
-  g.beginPath(); const c0 = P(-0.5, -0.5), c1 = P(n - 0.5, -0.5), c2 = P(n - 0.5, n - 0.5), c3 = P(-0.5, n - 0.5);
-  g.moveTo(...c0); g.lineTo(...c1); g.lineTo(...c2); g.lineTo(...c3); g.closePath(); g.fill();
-  // a faint centre bloom under the grid
-  const [mx, my] = P(n / 2 - 0.5, n / 2 - 0.5);
-  const rg = g.createRadialGradient(mx, my, 10, mx, my, n * HX);
-  rg.addColorStop(0, 'rgba(40,120,190,0.42)'); rg.addColorStop(1, 'rgba(30,90,140,0)');
-  g.fillStyle = rg; g.fill();
-  // strips
-  for (let y = 1; y < n - 1; y++) for (let x = 1; x < n - 1; x++) {
-    const i = y * n + x, mod = A.mod[i];
-    if (mod === 1) continue;
-    const [cx, cy] = P(x, y);
-    g.fillStyle = mod > 1 ? 'rgba(60,255,200,0.26)' : 'rgba(255,90,60,0.24)';
-    g.beginPath(); g.moveTo(cx, cy - HY); g.lineTo(cx + HX, cy); g.lineTo(cx, cy + HY); g.lineTo(cx - HX, cy); g.closePath(); g.fill();
+  // back to front: increasing x - y
+  const cells = [];
+  for (let y = y0; y < y0 + CH; y++) for (let x = x0; x < x0 + CH; x++) cells.push([x, y]);
+  cells.sort((a, b) => (a[0] - a[1]) - (b[0] - b[1]));
+  for (const [x, y] of cells) {
+    const sx = ox + ((x - x0) + (y - y0)) * HX, sy = oy + ((x - x0) - (y - y0)) * HY;
+    drawCellTerrain(g, S, x, y, sx, sy);
   }
-  // grid lines on cell edges
-  for (let k = 0; k <= n; k++) {
-    const major = k % 4 === 0 || k === 0 || k === n;
-    g.strokeStyle = major ? 'rgba(90,210,255,0.85)' : 'rgba(60,160,230,0.38)';
-    g.lineWidth = major ? 2 : 1;
-    let a = P(k - 0.5, -0.5), b = P(k - 0.5, n - 0.5);
-    g.beginPath(); g.moveTo(Math.round(a[0]) + 0.5, Math.round(a[1]) + 0.5); g.lineTo(Math.round(b[0]) + 0.5, Math.round(b[1]) + 0.5); g.stroke();
-    a = P(-0.5, k - 0.5); b = P(n - 0.5, k - 0.5);
-    g.beginPath(); g.moveTo(Math.round(a[0]) + 0.5, Math.round(a[1]) + 0.5); g.lineTo(Math.round(b[0]) + 0.5, Math.round(b[1]) + 0.5); g.stroke();
-  }
-  // grid crossings get a brighter dot
-  for (let y = 0; y <= n; y += 2) for (let x = 0; x <= n; x += 2) {
-    const [px, py] = P(x - 0.5, y - 0.5);
-    const big = x % 4 === 0 && y % 4 === 0;
-    g.fillStyle = big ? 'rgba(210,250,255,0.95)' : 'rgba(140,220,255,0.55)';
-    g.fillRect(Math.round(px) - (big ? 1 : 0), Math.round(py) - (big ? 1 : 0), big ? 3 : 2, big ? 3 : 2);
-  }
-  G.floor = { c, ox: (n - 1) * HX - ox + 0, oy: -oy, P };
-  G.floorOrigin = P(0, 0);
+  const out = { c, ox, oy, x0, y0 };
+  cache.set(key, out);
+  while (cache.size > (Z < 1 ? 60 : 24)) cache.delete(cache.keys().next().value);
+  return out;
 }
-function drawFloor(S) {
-  const f = G.floor; if (!f) return;
-  const [sx, sy] = iso(0, 0, 0);
-  ctx.drawImage(f.c, Math.round(sx - G.floorOrigin[0]), Math.round(sy - G.floorOrigin[1]));
+function visibleCells(S, pad) {
+  // invert the projection at the screen corners, ignoring height, then pad for tiers and stands
+  const pts = [[0, 0], [LW, 0], [0, LH], [LW, LH]].map(([sx, sy]) => {
+    const u = (sx - LW / 2 + G.cam.x) / HX, v = (sy - LH / 2 + G.cam.y) / HY;
+    return [(u + v) / 2, (u - v) / 2];
+  });
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  return { x0: Math.floor(Math.min(...xs)) - pad, x1: Math.ceil(Math.max(...xs)) + pad, y0: Math.floor(Math.min(...ys)) - pad, y1: Math.ceil(Math.max(...ys)) + pad + 4 };
 }
-
-// the arena rim: a low wall of light round the edge
-function drawRim(S, near) {
+function drawTerrain(S) {
+  const v = visibleCells(S, 3);
   const n = S.A.n;
-  const key = 'drone';
-  const edges = [
-    [[0, 0], [n - 1, 0], 'far'], [[0, 0], [0, n - 1], 'far'],
-    [[n - 1, 0], [n - 1, n - 1], 'near'], [[0, n - 1], [n - 1, n - 1], 'near'],
-  ];
-  for (const [a, b, side] of edges) {
-    if ((side === 'near') !== near) continue;
-    const [x0, y0] = iso(a[0], a[1], 0), [x1, y1] = iso(b[0], b[1], 0);
-    ctx.strokeStyle = 'rgba(170,230,255,0.95)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(x0, y0 - 10); ctx.lineTo(x1, y1 - 10); ctx.stroke();
-    ctx.strokeStyle = 'rgba(120,200,255,0.5)';
-    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
-    ctx.lineWidth = 1;
-    if (glowCtx) { glowCtx.strokeStyle = 'rgba(80,170,255,0.9)'; glowCtx.lineWidth = 2; glowCtx.beginPath(); glowCtx.moveTo(x0 / 2, (y0 - 10) / 2); glowCtx.lineTo(x1 / 2, (y1 - 10) / 2); glowCtx.stroke(); glowCtx.lineWidth = 1; }
-  }
-  if (S.exitOpen && !near) {
-    const ex = S.A.exit % n, ey = Math.floor(S.A.exit / n);
-    const [gx, gy] = iso(ex, ey, 0);
-    const pulse = 0.6 + 0.4 * Math.sin(G.t * 8);
-    ctx.fillStyle = `rgba(255,255,255,${0.35 * pulse})`; ctx.fillRect(gx - 10, gy - 40, 20, 40);
-    if (glowCtx) { glowCtx.fillStyle = `rgba(120,255,255,${pulse})`; glowCtx.fillRect(gx / 2 - 6, gy / 2 - 22, 12, 22); }
+  const cx0 = Math.floor(Math.max(-STAND, v.x0) / CH) - 1, cx1 = Math.floor(Math.min(n + STAND, v.x1) / CH);
+  const cy0 = Math.floor(Math.max(-STAND, v.y0) / CH) - 1, cy1 = Math.floor(Math.min(n + STAND, v.y1) / CH);
+  const list = [];
+  for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) list.push([cx, cy]);
+  list.sort((a, b) => (a[0] - a[1]) - (b[0] - b[1]));
+  for (const [cx, cy] of list) {
+    const ch = chunkCanvas(S, cx, cy);
+    const [sx, sy] = iso(ch.x0, ch.y0, 0);
+    ctx.drawImage(ch.c, Math.round(sx - ch.ox), Math.round(sy - ch.oy));
   }
 }
+function invalidateTerrain() { if (G.chunks) G.chunks.clear(); G.miniKey = ''; }
 
-// animated features: strips' chevrons, portals, faults, gates, decks
-function drawFeatures(S, layer) {
+// the city beyond, and light towers over the stands
+function buildSkyline() {
+  const W = 1600, H = 260, c = canvas(W, H), g = c.getContext('2d');
+  let x = 0, k = 0;
+  while (x < W) {
+    const w = 14 + Math.floor(hash(k, 1) * 40), h = 40 + Math.floor(hash(k, 2) * 180);
+    g.fillStyle = hash(k, 3) < 0.5 ? '#070a16' : '#0a0e1d';
+    g.fillRect(x, H - h, w, h);
+    g.fillStyle = 'rgba(90,190,220,0.35)';
+    g.fillRect(x, H - h, w, 1);
+    for (let wy = H - h + 6; wy < H - 4; wy += 6) for (let wx = x + 3; wx < x + w - 3; wx += 5) if (hash(wx, wy) < 0.06) { g.fillStyle = 'rgba(120,210,235,0.35)'; g.fillRect(wx, wy, 1, 1); }
+    x += w + Math.floor(hash(k, 5) * 6); k++;
+  }
+  G.skyline = c;
+}
+function drawBackdrop(S) {
+  const grd = ctx.createLinearGradient(0, 0, 0, LH);
+  grd.addColorStop(0, '#010207'); grd.addColorStop(0.45, '#03141b'); grd.addColorStop(0.7, '#020a10'); grd.addColorStop(1, '#010206');
+  ctx.fillStyle = grd; ctx.fillRect(0, 0, LW, LH);
+  if (!G.skyline) buildSkyline();
+  const off = ((G.cam.x * 0.06) % 1600 + 1600) % 1600;
+  const y = Math.round(30 - G.cam.y * 0.03);
+  ctx.globalAlpha = 0.45;
+  for (let k = -1; k < 2; k++) ctx.drawImage(G.skyline, Math.round(-off + k * 1600), y);
+  ctx.globalAlpha = 1;
+}
+function drawTowers(S) {
+  const n = S.A.n;
+  for (const [x, y, ph] of [[-STAND + 1, n + STAND - 2, 0], [-STAND + 1, -2, 1.7], [n + 1, n + STAND - 2, 3.1]]) {
+    const [sx, sy] = iso(x, y, 0);
+    if (sx < -120 || sx > LW + 120 || sy < -300 || sy > LH + 200) continue;
+    const top = sy - 150 * Z;
+    ctx.fillStyle = '#05080f'; ctx.fillRect(sx - 3 * Z, top, 6 * Z, sy - top);
+    rect(sx - 8 * Z, top - 4 * Z, 16 * Z, 6 * Z, [200, 240, 255]);
+    // a beam that sweeps the arena
+    const a = Math.sin(G.t * 0.35 + ph) * 0.6 + 0.9;
+    const [cx, cy] = iso(n / 2 + Math.cos(G.t * 0.3 + ph) * n * 0.3, n / 2 + Math.sin(G.t * 0.27 + ph) * n * 0.3, 0);
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    const grd = ctx.createLinearGradient(sx, top, cx, cy);
+    grd.addColorStop(0, 'rgba(160,220,255,0.12)'); grd.addColorStop(1, 'rgba(160,220,255,0)');
+    ctx.fillStyle = grd;
+    ctx.beginPath(); ctx.moveTo(sx, top); ctx.lineTo(cx - 60 * Z * a, cy); ctx.lineTo(cx + 60 * Z * a, cy); ctx.closePath(); ctx.fill();
+    ctx.restore();
+    if (glowCtx) { glowCtx.fillStyle = 'rgba(200,240,255,0.9)'; glowCtx.fillRect(sx / 2 - 4 * Z, top / 2 - 2, 8 * Z, 3); }
+  }
+}
+// live details on top of the cached terrain: pads, lane chevrons, the collapse warning
+function drawLiveTerrain(S) {
   const A = S.A, n = A.n;
-  if (layer === 'floor') {
-    for (let y = 1; y < n - 1; y++) for (let x = 1; x < n - 1; x++) {
-      const i = y * n + x;
-      if (A.mod[i] > 1 && ((x + y + Math.floor(G.t * 6)) % 3 === 0)) {
-        const [cx, cy] = iso(x, y, 0);
-        ctx.fillStyle = 'rgba(80,255,210,0.35)'; ctx.fillRect(cx - 3, cy - 1, 6, 2);
-      }
-      if (A.portal[i] >= 0) {
-        const [cx, cy] = iso(x, y, 0);
-        for (let k = 0; k < 3; k++) {
-          const r = 6 + ((G.t * 10 + k * 5) % 15);
-          ctx.strokeStyle = `rgba(200,140,255,${0.7 * (1 - r / 21)})`; ctx.beginPath(); ctx.ellipse(cx, cy, r, r / 2, 0, 0, TAU); ctx.stroke();
+  const v = visibleCells(S, 2);
+  for (let y = Math.max(0, v.y0); y <= Math.min(n - 1, v.y1); y++) for (let x = Math.max(0, v.x0); x <= Math.min(n - 1, v.x1); x++) {
+    const i = y * n + x, h = A.h[i];
+    if (h < 0) continue;
+    if (A.jump[i] >= 0) {
+      const [cx, cy] = iso(x, y, h);
+      const d = A.jump[i];
+      ctx.strokeStyle = 'rgba(255,205,90,0.7)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(cx, cy - HY * 0.6); ctx.lineTo(cx + HX * 0.6, cy); ctx.lineTo(cx, cy + HY * 0.6); ctx.lineTo(cx - HX * 0.6, cy); ctx.closePath(); ctx.stroke();
+      for (let k = 0; k < 3; k++) {
+        const u = ((G.t * 2 + k / 3) % 1) - 0.5;
+        for (const sgn of [1, -1]) {
+          const [px, py] = iso(x + DX[d] * u * sgn, y + DY[d] * u * sgn, h);
+          rect(px - 1, py - 1, 2, 2, COL.gold, 0.9 * (0.5 - Math.abs(u)) * 2);
         }
-        if (glowCtx) { glowCtx.fillStyle = 'rgba(190,120,255,0.8)'; glowCtx.beginPath(); glowCtx.ellipse(cx / 2, cy / 2, 8, 4, 0, 0, TAU); glowCtx.fill(); }
       }
-    }
-    for (const f of A.fault) {
-      const x = f.i % n, y = Math.floor(f.i / n);
-      const [cx, cy] = iso(x, y, 0);
-      if (f.state === 'warn') {
-        const a = 0.25 + 0.35 * (Math.sin(G.t * 30) > 0 ? 1 : 0);
-        ctx.fillStyle = `rgba(255,80,60,${a})`; diamond(cx, cy, 1);
-      } else if (f.state === 'gone') {
-        ctx.fillStyle = '#000'; diamond(cx, cy, 0.96);
-        ctx.fillStyle = 'rgba(255,80,60,0.25)'; ctx.fillRect(cx - HX + 2, cy, HX * 2 - 4, 1);
-      }
+      if (glowCtx) { glowCtx.fillStyle = 'rgba(255,190,50,0.35)'; glowCtx.fillRect(cx / 2 - 3 * Z, cy / 2 - 1.5 * Z, 6 * Z, 3 * Z); }
+    } else if (A.mod[i] > 1 && ((x + y + Math.floor(G.t * 8)) % 4 === 0)) {
+      const [cx, cy] = iso(x, y, h);
+      rect(cx - 2 * Z, cy - 1, 4 * Z, 1, [80, 255, 210], 0.45);
     }
   }
-  if (layer === 'deck') {
-    for (let y = 1; y < n - 1; y++) for (let x = 1; x < n - 1; x++) {
-      const i = y * n + x;
-      if (A.deck[i]) {
-        const [cx, cy] = iso(x, y, 1);
-        ctx.fillStyle = 'rgba(20,40,70,0.55)'; diamond(cx, cy, 1);
-        ctx.strokeStyle = 'rgba(90,200,255,0.45)'; ctx.beginPath(); ctx.moveTo(cx - HX, cy); ctx.lineTo(cx, cy - HY); ctx.lineTo(cx + HX, cy); ctx.stroke();
-        // edges that drop off get a side face
-        if (!A.deck[i + 1]) { ctx.fillStyle = 'rgba(40,90,140,0.35)'; ctx.beginPath(); ctx.moveTo(cx + HX, cy); ctx.lineTo(cx, cy + HY); ctx.lineTo(cx, cy + HY + DECK_H); ctx.lineTo(cx + HX, cy + DECK_H); ctx.fill(); }
-        if (!A.deck[i - n]) { ctx.fillStyle = 'rgba(30,70,120,0.35)'; ctx.beginPath(); ctx.moveTo(cx - HX, cy); ctx.lineTo(cx, cy + HY); ctx.lineTo(cx, cy + HY + DECK_H); ctx.lineTo(cx - HX, cy + DECK_H); ctx.fill(); }
-      }
-      if (A.ramp[i] >= 0) {
-        const [cx, cy] = iso(x, y, 0.5);
-        ctx.fillStyle = 'rgba(60,160,220,0.35)'; diamond(cx, cy, 1);
-        for (let k = 0; k < 3; k++) { const u = ((G.t * 1.5 + k / 3) % 1); ctx.fillStyle = `rgba(140,230,255,${0.6 * (1 - u)})`; const [px, py] = iso(x + DX[A.ramp[i]] * (u - 0.5), y + DY[A.ramp[i]] * (u - 0.5), u); ctx.fillRect(px - 2, py - 1, 4, 2); }
-      }
-    }
-    for (const gt of A.gates) {
-      for (const i of gt.open === 'a' ? gt.b : gt.a) {
-        const x = i % n, y = Math.floor(i / n);
-        const [cx, cy] = iso(x, y, 0);
-        ctx.fillStyle = 'rgba(255,200,60,0.55)'; ctx.fillRect(cx - 3, cy - 26, 6, 26);
-        if (glowCtx) { glowCtx.fillStyle = 'rgba(255,190,40,0.9)'; glowCtx.fillRect(cx / 2 - 2, cy / 2 - 13, 4, 13); }
-      }
-    }
+  if (A.warnRing >= 0) {
+    const k = A.warnRing, on = Math.sin(G.t * 24) > 0;
+    ctx.strokeStyle = on ? 'rgba(255,60,80,0.9)' : 'rgba(255,60,80,0.35)'; ctx.lineWidth = 2;
+    const c0 = iso(k - 0.5, k - 0.5, 0), c1 = iso(n - k - 0.5, k - 0.5, 0), c2 = iso(n - k - 0.5, n - k - 0.5, 0), c3 = iso(k - 0.5, n - k - 0.5, 0);
+    ctx.beginPath(); ctx.moveTo(...c0); ctx.lineTo(...c1); ctx.lineTo(...c2); ctx.lineTo(...c3); ctx.closePath(); ctx.stroke();
+    ctx.lineWidth = 1;
+    if (glowCtx) { glowCtx.strokeStyle = 'rgba(255,60,80,0.9)'; glowCtx.beginPath(); glowCtx.moveTo(c0[0] / 2, c0[1] / 2); glowCtx.lineTo(c1[0] / 2, c1[1] / 2); glowCtx.lineTo(c2[0] / 2, c2[1] / 2); glowCtx.lineTo(c3[0] / 2, c3[1] / 2); glowCtx.closePath(); glowCtx.stroke(); }
   }
 }
 function diamond(cx, cy, s) { ctx.beginPath(); ctx.moveTo(cx, cy - HY * s); ctx.lineTo(cx + HX * s, cy); ctx.lineTo(cx, cy + HY * s); ctx.lineTo(cx - HX * s, cy); ctx.closePath(); ctx.fill(); }
+// cells standing in front of a rider and above it get drawn again over the rider
+function drawOccluders(S, b) {
+  const [px, py] = bikePos(b);
+  const lv = bikeLevel(b, S);
+  const bx = Math.round(px), by = Math.round(py);
+  for (let i = 0; i <= 3; i++) for (let j = 0; j <= 3; j++) {
+    if (!i && !j) continue;
+    const x = bx + i, y = by - j;
+    const h = cellHeight(S, x, y);
+    if (h < 0 || h <= lv + 0.3) continue;
+    if ((x - y) <= (px - py) + 0.5) continue;
+    const [sx, sy] = iso(x, y, 0);
+    drawCellTerrain(ctx, S, x, y, sx, sy);
+  }
+}
 
 // ---------------------------------------------------------------- walls, bikes, pickups: depth-sorted
+function cellLevel(S, x, y) { const i = y * S.A.n + x; const h = Math.max(0, S.A.h[i]); return S.A.ramp[i] >= 0 ? h + 0.5 : h; }
 function collectWalls(S, list) {
   const n = S.A.n;
-  for (let lv = 0; lv < 2; lv++) {
+  const v = visibleCells(S, 2);
+  const X0 = Math.max(0, v.x0), X1 = Math.min(n - 1, v.x1), Y0 = Math.max(0, v.y0), Y1 = Math.min(n - 1, v.y1);
+  for (let lv = 0; lv < 3; lv++) {
     const own = S.wallOwner[lv], stamp = S.wallStamp[lv];
-    for (let i = 0; i < own.length; i++) {
+    for (let y = Y0; y <= Y1; y++) for (let x = X0; x <= X1; x++) {
+      const i = y * n + x;
       const o = own[i];
       if (o === -1 || !Sim.wallAlive(S, lv, i)) continue;
-      const x = i % n, y = (i / n) | 0;
-      if (o === -2) { list.push({ k: x - y + lv * 100, f: () => pillar(x, y) }); continue; }
+      if (o === -2) { list.push({ k: x - y, f: () => pillar(x, y, lv) }); continue; }
       const b = S.bikes[o];
       const key = b ? bikeKey(b) : 'drone';
       const fade = b && !b.alive ? clamp(1 - (S.t - b.deadAt) / 0.6, 0, 1) : 1;
       const s = stamp[i];
-      // connect to the previous cell of the same trail
       for (let d = 0; d < 4; d++) {
         const px = x + DX[d], py = y + DY[d];
         if (px < 0 || py < 0 || px >= n || py >= n) continue;
         const j = py * n + px;
-        if (own[j] !== o) continue;
-        const ds = s - stamp[j];
-        if (ds > 0.5 && ds < 1.6 && Sim.wallAlive(S, lv, j)) {
-          list.push({ k: (x + px) / 2 - (y + py) / 2 + lv * 100 - 0.02, f: () => wallSegment(px, py, x, y, lv, key, fade) });
+        let jl = -1;
+        for (let q = 0; q < 3; q++) if (S.wallOwner[q][j] === o) { jl = q; break; }
+        if (jl < 0) continue;
+        const ds = s - S.wallStamp[jl][j];
+        if (ds > 0.5 && ds < 1.6 && Sim.wallAlive(S, jl, j)) {
+          const la = cellLevel(S, px, py), lb = cellLevel(S, x, y);
+          list.push({ k: (x + px) / 2 - (y + py) / 2 - 0.02, f: () => wallSegment(px, py, la, x, y, lb, key, fade) });
         }
       }
     }
   }
-  // the live head of each trail, from its last wall cell to the bike
   for (const b of S.bikes) {
-    if (!b.alive || b.lastWall < 0 || b.rezT > 0) continue;
+    if (!b.alive || b.lastWall < 0 || b.rezT > 0 || b.air > 0) continue;
     const lx = b.lastWall % n, ly = (b.lastWall / n) | 0;
     if (!Sim.wallAlive(S, b.lastWallLevel, b.lastWall)) continue;
     const [px, py] = bikePos(b);
-    const pts = [[lx, ly]];
-    if (!b.laid && (lx !== b.x || ly !== b.y)) pts.push([b.x, b.y]);
-    pts.push([px, py]);
-    const key = bikeKey(b), lv = b.lastWallLevel;
+    const pts = [[lx, ly, cellLevel(S, lx, ly)]];
+    if (!b.laid && (lx !== b.x || ly !== b.y)) pts.push([b.x, b.y, cellLevel(S, b.x, b.y)]);
+    pts.push([px, py, bikeLevel(b, S)]);
+    const key = bikeKey(b);
     for (let k = 0; k + 1 < pts.length; k++) {
-      const [ax, ay] = pts[k], [bx, by] = pts[k + 1];
+      const [ax, ay, la] = pts[k], [bx, by, lb] = pts[k + 1];
       if (Math.abs(ax - bx) + Math.abs(ay - by) < 0.02) continue;
-      list.push({ k: (ax + bx) / 2 - (ay + by) / 2 + lv * 100 - 0.02, f: () => wallSegment(ax, ay, bx, by, lv, key, 1) });
+      if (Math.abs(ax - bx) + Math.abs(ay - by) > 1.6) continue;
+      list.push({ k: (ax + bx) / 2 - (ay + by) / 2 - 0.02, f: () => wallSegment(ax, ay, la, bx, by, lb, key, 1) });
     }
   }
 }
-function pillar(x, y) {
-  const [cx, cy] = iso(x, y, 0);
-  const h = 34;
-  ctx.fillStyle = 'rgba(255,60,90,0.35)'; ctx.fillRect(cx - 10, cy - h, 20, h);
-  ctx.fillStyle = 'rgba(255,200,210,0.9)'; ctx.fillRect(cx - 10, cy - h, 20, 2);
-  if (glowCtx) { glowCtx.fillStyle = 'rgba(255,50,90,0.8)'; glowCtx.fillRect(cx / 2 - 5, (cy - h) / 2, 10, h / 2); }
+function pillar(x, y, lv) {
+  const [cx, cy] = iso(x, y, lv);
+  const h = 34 * Z;
+  ctx.fillStyle = '#7a1830'; ctx.fillRect(cx - 10 * Z, cy - h, 20 * Z, h);
+  ctx.fillStyle = '#b02448'; ctx.fillRect(cx - 10 * Z, cy - h, 20 * Z, Math.round(h * 0.4));
+  ctx.fillStyle = 'rgba(255,200,210,0.9)'; ctx.fillRect(cx - 10 * Z, cy - h, 20 * Z, 2);
+  if (glowCtx) { glowCtx.fillStyle = 'rgba(255,50,90,0.8)'; glowCtx.fillRect(cx / 2 - 5 * Z, (cy - h) / 2, 10 * Z, h / 2); }
 }
 function drawBike(S, b) {
   const [px, py] = bikePos(b);
-  const lv = bikeLevel(b);
-  let [sx, sy] = iso(px, py, lv);
+  const lv = bikeLevel(b, S);
+  const [sx, sy] = iso(px, py, lv);
   const key = bikeKey(b);
-  // the drawn heading eases round a turn over a few frames
   const target = b.d * 4;
   let a = G.angle[b.id];
   if (a == null) a = target;
-  let diff = ((target - a + 24) % 16) - 8;
+  const diff = ((target - a + 24) % 16) - 8;
   a = (a + diff * Math.min(1, G.dt * 16) + 16) % 16;
   if (Math.abs(diff) < 0.05) a = target;
   G.angle[b.id] = a;
@@ -409,14 +535,34 @@ function drawBike(S, b) {
   const leanI = b.leanT > 0 ? (b.lean < 0 ? 1 : 2) : 0;
   const spin = Math.floor(b.dist * 6) % 3;
   const family = b.kind === 'warden' && b.armour > 0 ? 'warden' : 'rider';
-  // a pool of the bike's light on the floor
   const col = COL[key];
-  ctx.fillStyle = css(col, 0.10); ctx.beginPath(); ctx.ellipse(sx, sy + 2, 30, 11, 0, 0, TAU); ctx.fill();
-  if (glowCtx) { glowCtx.fillStyle = css(col, 0.12); glowCtx.beginPath(); glowCtx.ellipse(sx / 2, sy / 2 + 1, 14, 5, 0, 0, TAU); glowCtx.fill(); }
-  const rez = b.rezT > 0 ? 1 - b.rezT / 0.6 : 1;
+  // its shadow and light pool on whatever is beneath
+  const ground = b.air > 0 ? surfaceAt(S, px, py) : lv;
+  if (ground != null) {
+    const [gx, gy] = iso(px, py, ground);
+    ctx.fillStyle = b.air > 0 ? 'rgba(0,0,0,0.45)' : css(col, 0.08);
+    ctx.beginPath(); ctx.ellipse(gx, gy + 2 * Z, 30 * Z, 11 * Z, 0, 0, TAU); ctx.fill();
+  }
+  // the countdown: the rider sprints in, leaps, and the bike forms under them as they land
+  if (S.countdown > 0 && S.countdown <= 3.2) {
+    const u = 1 - S.countdown / 3.2;
+    const rdir = String((b.d * 2) % 8).padStart(2, '0');
+    if (u < 0.86) {
+      const run = clamp(u / 0.72, 0, 1);
+      const back = 3.2 * (1 - easeOut(run));
+      const lift = u > 0.72 ? Math.sin((u - 0.72) / 0.14 * Math.PI) * 0.9 : 0;
+      const [rx, ry] = iso(px - DX[b.d] * back, py - DY[b.d] * back, lv + lift);
+      const frame = u > 0.72 ? (u > 0.8 ? 7 : 6) : Math.floor(G.t * 12 + b.id) % 6;
+      if (lift > 0) { const [gx, gy] = iso(px - DX[b.d] * back, py - DY[b.d] * back, lv); ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.beginPath(); ctx.ellipse(gx, gy, 10 * Z, 4 * Z, 0, 0, TAU); ctx.fill(); }
+      sprite(`runner_${rdir}_${frame}${SFX}`, key, rx, ry, 1, 0.6);
+      return;
+    }
+    b.rezShow = (u - 0.86) / 0.14;
+  } else b.rezShow = null;
+  const rez = b.rezShow != null ? b.rezShow : b.rezT > 0 ? 1 - b.rezT / 0.6 : 1;
+  const name = `${family}_${String(dir).padStart(2, '0')}_${leanI}_${spin}${SFX}`;
   if (rez < 1) {
-    // rez in: a scan line sweeps up and leaves the bike behind it
-    const s = G.M.sprites[`${family}_${String(dir).padStart(2, '0')}_0_0`];
+    const s = G.M.sprites[`${family}_${String(dir).padStart(2, '0')}_0_0${SFX}`];
     if (s) {
       const [sxa, sya, w, h, ox, oy] = s;
       const shown = Math.round(h * rez);
@@ -426,43 +572,46 @@ function drawBike(S, b) {
     return;
   }
   const flick = b.kind === 'glitch' && Math.sin(G.t * 40 + b.id) > 0.85;
-  const shield = b.shield > 0;
-  if (b.phase > 0 || flick) ctx.globalAlpha = 0.55;
-  sprite(`${family}_${String(dir).padStart(2, '0')}_${leanI}_${spin}`, key, sx, sy, b.phase > 0 || flick ? 0.55 : 1, 0.45);
-  ctx.globalAlpha = 1;
-  if (shield) {
-    const r = 26 + Math.sin(G.t * 10) * 1.5;
-    ctx.strokeStyle = css(COL.shield, 0.55); ctx.beginPath(); ctx.ellipse(sx, sy - 12, r, r * 0.62, 0, 0, TAU); ctx.stroke();
-    if (glowCtx) { glowCtx.strokeStyle = css(COL.shield, 0.8); glowCtx.beginPath(); glowCtx.ellipse(sx / 2, sy / 2 - 6, r / 2, r * 0.31, 0, 0, TAU); glowCtx.stroke(); }
+  if (!(b.air > 0)) {
+    const s2 = G.M.sprites[name];
+    if (s2) {
+      const [sxa, sya, w, h, ox, oy] = s2;
+      ctx.save(); ctx.globalAlpha = 0.22; ctx.translate(Math.round(sx - ox), Math.round(sy + oy)); ctx.scale(1, -1);
+      ctx.drawImage(atlasFor(key), sxa, sya, w, h, 0, 0, w, h); ctx.restore();
+    }
+  }
+  sprite(name, key, sx, sy, b.phase > 0 || flick ? 0.55 : 1, 0.45);
+  if (b.shield > 0) {
+    const r = (26 + Math.sin(G.t * 10) * 1.5) * Z;
+    ctx.strokeStyle = css(COL.shield, 0.55); ctx.beginPath(); ctx.ellipse(sx, sy - 12 * Z, r, r * 0.62, 0, 0, TAU); ctx.stroke();
   }
   if (b.sealed && b.kind !== 'player') {
     const u = (G.t * 3) % 1;
-    ctx.strokeStyle = css(COL.gold, 0.8 * (1 - u)); ctx.beginPath(); ctx.ellipse(sx, sy, 14 + u * 30, (14 + u * 30) / 2, 0, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = css(COL.gold, 0.8 * (1 - u)); ctx.beginPath(); ctx.ellipse(sx, sy, (14 + u * 30) * Z, (14 + u * 30) / 2 * Z, 0, 0, TAU); ctx.stroke();
   }
-  // grind sparks
   if (b.grindSide && b.speed > 1) {
     const side = b.grindSide < 0 ? (b.d + 3) % 4 : (b.d + 1) % 4;
     const [gx, gy] = iso(px + DX[side] * 0.45, py + DY[side] * 0.45, lv);
-    for (let k = 0; k < 2; k++) spark(gx, gy - 4, key);
+    for (let k = 0; k < 2; k++) spark(gx + G.cam.x, gy - 4 * Z + G.cam.y, key);
   }
 }
 function drawCell(S, c) {
-  const [sx, sy] = iso(c.x, c.y, 0);
+  const lv = c.level || 0;
+  const [sx, sy] = iso(c.x, c.y, lv);
   const f = Math.floor(G.t * 10 + c.x) % 8;
-  const bob = Math.sin(G.t * 3 + c.x) * 2;
-  ctx.fillStyle = css(COL[c.kind], 0.18); ctx.beginPath(); ctx.ellipse(sx, sy, 12, 5, 0, 0, TAU); ctx.fill();
-  sprite(`cell_${String(f).padStart(2, '0')}`, c.kind, sx, sy + bob);
-  text(c.kind[0].toUpperCase(), sx - 2, sy - 30 + bob, COL[c.kind]);
+  const bob = Math.sin(G.t * 3 + c.x) * 2 * Z;
+  ctx.fillStyle = css(COL[c.kind], 0.2); ctx.beginPath(); ctx.ellipse(sx, sy, 12 * Z, 5 * Z, 0, 0, TAU); ctx.fill();
+  sprite(`cell_${String(f).padStart(2, '0')}${SFX}`, c.kind, sx, sy + bob);
+  text(c.kind[0].toUpperCase(), sx - 4, sy - 34 * Z + bob, COL[c.kind], Z < 1 ? 1 : 2);
 }
 function drawPylon(S, py) {
   if (!py.alive) return;
   const [sx, sy] = iso(py.x, py.y, 0);
-  sprite('pylon', 'boss', sx, sy);
-  // the tether up to the Overseer
+  sprite('pylon' + SFX, 'boss', sx, sy);
   const B = S.boss;
   if (B && !B.down) {
     const [bx, by] = iso(B.x, B.y, 0);
-    const top = [sx, sy - 70], end = [bx, by - 88];
+    const top = [sx, sy - 70 * Z], end = [bx, by - 88 * Z];
     ctx.strokeStyle = `rgba(255,70,110,${0.35 + 0.2 * Math.sin(G.t * 9 + py.x)})`; ctx.beginPath(); ctx.moveTo(...top); ctx.lineTo(...end); ctx.stroke();
     if (glowCtx) { glowCtx.strokeStyle = 'rgba(255,60,100,0.6)'; glowCtx.beginPath(); glowCtx.moveTo(top[0] / 2, top[1] / 2); glowCtx.lineTo(end[0] / 2, end[1] / 2); glowCtx.stroke(); }
   }
@@ -473,18 +622,13 @@ function drawBoss(S) {
   if (B.down) {
     const u = clamp((S.t - B.downAt) / 1.4, 0, 1);
     if (u >= 1) return;
-    // it falls and breaks: sink, flicker, flash
-    ctx.globalAlpha = 1 - u;
-    sprite(`boss_1_${String(Math.floor(G.t * 20) % 12).padStart(2, '0')}`, 'boss', sx + Math.sin(G.t * 60) * 3 * u, sy + u * 50, 1 - u);
-    ctx.globalAlpha = 1;
+    sprite(`boss_1_${String(Math.floor(G.t * 20) % 12).padStart(2, '0')}${SFX}`, 'boss', sx + Math.sin(G.t * 60) * 3 * u, sy + u * 50 * Z, 1 - u);
     return;
   }
-  // its shadow on the floor
-  ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.beginPath(); ctx.ellipse(sx, sy, 90, 38, 0, 0, TAU); ctx.fill();
+  ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.beginPath(); ctx.ellipse(sx, sy, 90 * Z, 38 * Z, 0, 0, TAU); ctx.fill();
   const charged = B.attacks.some(a => !a.fired) ? 1 : 0;
   const f = Math.floor(G.t * 6) % 12;
-  const hover = Math.sin(G.t * 1.6) * 4;
-  sprite(`boss_${charged}_${String(f).padStart(2, '0')}`, 'boss', sx, sy + hover);
+  sprite(`boss_${charged}_${String(f).padStart(2, '0')}${SFX}`, 'boss', sx, sy + Math.sin(G.t * 1.6) * 4 * Z);
 }
 function drawAttacks(S) {
   const B = S.boss; if (!B) return;
@@ -495,20 +639,66 @@ function drawAttacks(S) {
       const warnA = live ? 0.9 : 0.25 + 0.3 * (Math.sin(G.t * 26) > 0 ? 1 : 0);
       for (let k = 1; k < n - 1; k++) {
         const x = a.horiz ? k : a.line, y = a.horiz ? a.line : k;
-        const [cx, cy] = iso(x, y, 0);
+        const [cx, cy] = iso(x, y, cellLevel(S, x, y));
         ctx.fillStyle = live ? `rgba(255,230,240,${warnA})` : `rgba(255,50,90,${warnA})`;
         diamond(cx, cy, live ? 0.7 : 0.9);
-        if (live && glowCtx) { glowCtx.fillStyle = 'rgba(255,60,110,0.9)'; glowCtx.fillRect(cx / 2 - 6, cy / 2 - 3, 12, 6); }
       }
     } else if (a.kind === 'drop' && !a.fired) {
       const u = clamp(a.t / a.warn, 0, 1);
       for (const i of a.cells) {
-        const [cx, cy] = iso(i % n, (i / n) | 0, 0);
-        ctx.fillStyle = `rgba(0,0,0,${0.3 + 0.4 * u})`; ctx.beginPath(); ctx.ellipse(cx, cy, 6 + 14 * u, (6 + 14 * u) / 2, 0, 0, TAU); ctx.fill();
-        ctx.strokeStyle = `rgba(255,60,90,${0.4 + 0.5 * u})`; ctx.stroke();
+        const x = i % n, y = (i / n) | 0;
+        const [cx, cy] = iso(x, y, cellLevel(S, x, y));
+        ctx.fillStyle = `rgba(0,0,0,${0.3 + 0.4 * u})`; ctx.beginPath(); ctx.ellipse(cx, cy, (6 + 14 * u) * Z, (6 + 14 * u) / 2 * Z, 0, 0, TAU); ctx.fill();
       }
     }
   }
+}
+
+// ---------------------------------------------------------------- the minimap
+function drawMinimap(S) {
+  const A = S.A, n = A.n, size = 72;
+  const X = LW - size - 6, Y = 34;
+  const key = S.run.seed + ':' + S.sector + ':' + A.ring;
+  if (G.miniKey !== key) {
+    const c = G.miniBase || (G.miniBase = canvas(size, size)), g = c.getContext('2d');
+    const img = g.createImageData(size, size);
+    for (let py = 0; py < size; py++) for (let px = 0; px < size; px++) {
+      // rotate so the minimap matches the screen: +x runs right-down, +y right-up
+      const u = px / size, w = py / size;
+      const x = Math.floor((u + w) / 2 * n * 1.0), y = Math.floor((u - w + 1) / 2 * n);
+      const o = (py * size + px) * 4;
+      if (x < 0 || y < 0 || x >= n || y >= n) continue;
+      const h = A.h[y * n + x];
+      if (h < 0) continue;
+      const t = TIER_EDGE[Math.min(2, h)];
+      img.data[o] = 10 + t[0] * 0.12 * (h + 1); img.data[o + 1] = 14 + t[1] * 0.12 * (h + 1); img.data[o + 2] = 30 + t[2] * 0.12 * (h + 1); img.data[o + 3] = 220;
+    }
+    g.putImageData(img, 0, 0);
+    G.miniKey = key;
+  }
+  rect(X - 2, Y - 2, size + 4, size + 4, COL.ink, 0.8);
+  ctx.drawImage(G.miniBase, X, Y);
+  const toMini = (x, y) => [X + ((x + 0.5) / n + (y + 0.5) / n - 1) * size * 0.5 + size / 2, Y + ((x + 0.5) / n - (y + 0.5) / n) * size * 0.5 + size / 2];
+  // walls every other frame's worth: sample by cell
+  const step = n > 72 ? 2 : 1;
+  for (let lv = 0; lv < 3; lv++) {
+    const own = S.wallOwner[lv];
+    for (let i = 0; i < own.length; i += step) {
+      const o = own[i]; if (o < 0) continue;
+      const b = S.bikes[o]; if (!b) continue;
+      const x = i % n, y = (i / n) | 0;
+      if (!Sim.wallAlive(S, lv, i)) continue;
+      const [mx, my] = toMini(x, y);
+      ctx.fillStyle = css(COL[bikeKey(b)], 0.75); ctx.fillRect(Math.round(mx), Math.round(my), 1, 1);
+    }
+  }
+  for (const b of S.bikes) {
+    if (!b.alive) continue;
+    const [mx, my] = toMini(...bikePos(b));
+    const me = b.kind === 'player';
+    rect(mx - (me ? 2 : 1), my - (me ? 2 : 1), me ? 4 : 3, me ? 4 : 3, me ? (Math.sin(G.t * 10) > 0 ? COL.white : COL.player) : COL[bikeKey(b)]);
+  }
+  if (S.boss && !S.boss.down) { const [mx, my] = toMini(S.boss.x, S.boss.y); rect(mx - 3, my - 3, 6, 6, COL.boss, 0.8); }
 }
 
 // ---------------------------------------------------------------- particles and effects
@@ -529,16 +719,16 @@ function drawParticles(dt) {
     p.t += dt; p.vy += p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt;
     const a = 1 - p.t / p.life;
     if (a <= 0) continue;
-    rect(p.x - G.cam.dx, p.y - G.cam.dy, p.size, p.size, p.col, a);
-    if (glowCtx) { glowCtx.fillStyle = css(p.col, a); glowCtx.fillRect((p.x - G.cam.dx) / 2, (p.y - G.cam.dy) / 2, 1, 1); }
+    rect(p.x - G.cam.x, p.y - G.cam.y, p.size, p.size, p.col, a);
+    if (glowCtx) { glowCtx.fillStyle = css(p.col, a); glowCtx.fillRect((p.x - G.cam.x) / 2, (p.y - G.cam.y) / 2, 1, 1); }
   }
   G.particles = G.particles.filter(p => p.t < p.life);
   for (const r of G.rings) {
     r.t += dt;
     const u = r.t / r.life; if (u >= 1) continue;
     const rr = r.r * easeOut(u);
-    ctx.strokeStyle = css(r.col, 1 - u); ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(r.x - G.cam.dx, r.y - G.cam.dy, rr, rr / 2, 0, 0, TAU); ctx.stroke(); ctx.lineWidth = 1;
-    if (glowCtx) { glowCtx.strokeStyle = css(r.col, 1 - u); glowCtx.beginPath(); glowCtx.ellipse((r.x - G.cam.dx) / 2, (r.y - G.cam.dy) / 2, rr / 2, rr / 4, 0, 0, TAU); glowCtx.stroke(); }
+    ctx.strokeStyle = css(r.col, 1 - u); ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(r.x - G.cam.x, r.y - G.cam.y, rr, rr / 2, 0, 0, TAU); ctx.stroke(); ctx.lineWidth = 1;
+    if (glowCtx) { glowCtx.strokeStyle = css(r.col, 1 - u); glowCtx.beginPath(); glowCtx.ellipse((r.x - G.cam.x) / 2, (r.y - G.cam.y) / 2, rr / 2, rr / 4, 0, 0, TAU); glowCtx.stroke(); }
   }
   G.rings = G.rings.filter(r => r.t < r.life);
 }
@@ -551,7 +741,7 @@ function drawDerezzes(S) {
     const f = Math.min(11, Math.floor(u * 12));
     const [sx, sy] = iso(z.x, z.y, z.level);
     if (f < 2) { ctx.fillStyle = `rgba(255,255,255,${0.5 * (1 - u * 4)})`; ctx.beginPath(); ctx.ellipse(sx, sy - 10, 40, 20, 0, 0, TAU); ctx.fill(); }
-    sprite(`derez_${String(z.dir).padStart(2, '0')}_${String(f).padStart(2, '0')}`, z.key, sx, sy);
+    sprite(`derez_${String(z.dir).padStart(2, '0')}_${String(f).padStart(2, '0')}${SFX}`, z.key, sx, sy);
   }
   for (let i = derezzes.length - 1; i >= 0; i--) if (G.t - derezzes[i].t0 > 0.8) derezzes.splice(i, 1);
 }
@@ -579,57 +769,78 @@ function applyBloom(strength) {
 }
 
 // ---------------------------------------------------------------- the scene
+// The camera follows in cells (so a zoom change keeps its place) and pulls back with speed.
 function updateCamera(S, dt, lead) {
   const P = Sim.player(S);
-  let tx, ty;
-  if (G.camTarget) [tx, ty] = G.camTarget;
+  let tx, ty, tl;
+  if (G.camTarget) [tx, ty, tl] = G.camTarget;
   else {
     const [px, py] = P.alive ? bikePos(P) : [G.lastPX || S.A.n / 2, G.lastPY || S.A.n / 2];
-    if (P.alive) { G.lastPX = px; G.lastPY = py; }
-    const la = lead == null ? 1.4 : lead;
-    const lx = px + DX[P.d] * la, ly = py + DY[P.d] * la;
-    tx = (lx + ly) * HX; ty = (lx - ly) * HY - 16;
+    if (P.alive) { G.lastPX = px; G.lastPY = py; G.lastPL = bikeLevel(P, S); }
+    const la = (lead == null ? 1.6 : lead) / Z;
+    tx = px + DX[P.d] * la; ty = py + DY[P.d] * la; tl = G.lastPL || 0;
   }
-  G.cam.fx = G.cam.fx == null ? tx : lerp(G.cam.fx, tx, Math.min(1, dt * 4));
-  G.cam.fy = G.cam.fy == null ? ty : lerp(G.cam.fy, ty, Math.min(1, dt * 4));
-  G.cam.shake = Math.max(0, G.cam.shake - dt * 18);
-  const sh = G.cam.shake;
-  const nx = Math.round(G.cam.fx + (Math.random() - 0.5) * sh), ny = Math.round(G.cam.fy + (Math.random() - 0.5) * sh);
-  G.cam.dx = nx - G.cam.x; G.cam.dy = ny - G.cam.y;
-  G.cam.x = nx; G.cam.y = ny;
+  const c = G.cam;
+  if (c.cx == null) { c.cx = tx; c.cy = ty; c.cl = tl || 0; }
+  c.cx = lerp(c.cx, tx, Math.min(1, dt * 4)); c.cy = lerp(c.cy, ty, Math.min(1, dt * 4)); c.cl = lerp(c.cl, tl || 0, Math.min(1, dt * 3));
+  c.shake = Math.max(0, c.shake - dt * 18);
+  const nx = Math.round((c.cx + c.cy) * HX + (Math.random() - 0.5) * c.shake);
+  const ny = Math.round((c.cx - c.cy) * HY - c.cl * TIER_H - 16 * Z + (Math.random() - 0.5) * c.shake);
+  c.dx = nx - c.x; c.dy = ny - c.y;
+  c.x = nx; c.y = ny;
+}
+// near when slow, far when fast; a short lens pull between them
+function updateZoom(S, dt, force) {
+  const P = Sim.player(S);
+  const fast = force != null ? force : (S.A.boss || (P.alive && P.speed > 6.2));
+  G.zoomHold = (G.zoomHold || 0) + dt;
+  const want = fast ? 0.5 : 1;
+  if (want !== Z && (force != null || G.zoomHold > (want < 1 ? 0.5 : 1.4))) {
+    // keep the old frame for the lens pull
+    G.lens = { img: G.lensCanvas || (G.lensCanvas = canvas(LW, LH)), t0: G.t, from: Z, to: want };
+    const lg = G.lens.img.getContext('2d');
+    lg.clearRect(0, 0, LW, LH);
+    if (G.worldSnap) lg.drawImage(G.worldSnap, 0, 0); else G.lens = null;
+    setZoom(want);
+    G.zoomHold = 0;
+  } else if (want === Z) G.zoomHold = 0;
+}
+function drawLens() {
+  const L = G.lens; if (!L) return;
+  const u = (G.t - L.t0) / 0.3;
+  if (u >= 1) { G.lens = null; return; }
+  const k = lerp(1, L.to / L.from, easeOut(u));
+  ctx.save(); ctx.globalAlpha = 1 - u; ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(L.img, LW / 2 - LW * k / 2, LH / 2 - LH * k / 2, LW * k, LH * k);
+  ctx.restore(); ctx.imageSmoothingEnabled = false;
 }
 function drawScene(S, dt, opts) {
   opts = opts || {};
   setupGlow();
-  rect(0, 0, LW, LH, [3, 4, 11]);
-  // stars far below the grid
-  for (let i = 0; i < 70; i++) {
-    const x = (hash(i, 1) * 900 - G.cam.x * 0.15) % LW, y = (hash(i, 2) * 700 - G.cam.y * 0.15) % LH;
-    rect((x + LW) % LW, (y + LH) % LH, 1, 1, [120, 170, 230], 0.25 + 0.5 * hash(i, 3));
-  }
-  const key = `${S.run.seed}_${S.sector}`;
-  if (G.floorKey !== key) { buildFloor(S); G.floorKey = key; }
-  drawFloor(S);
-  drawRim(S, false);
-  drawFeatures(S, 'floor');
+  drawBackdrop(S);
+  drawTowers(S);
+  const sceneKey = `${S.run.seed}_${S.sector}`;
+  if (G.floorKey !== sceneKey) { invalidateTerrain(); G.floorKey = sceneKey; }
+  if (G.ringKey !== S.A.ring) { invalidateTerrain(); G.ringKey = S.A.ring; }
+  drawTerrain(S);
+  drawLiveTerrain(S);
   drawAttacks(S);
   const list = [];
   collectWalls(S, list);
-  for (const b of S.bikes) if (b.alive) { const [px, py] = bikePos(b); list.push({ k: px - py + bikeLevel(b) * 100 + 0.05, f: () => drawBike(S, b) }); }
+  for (const b of S.bikes) if (b.alive) { const [px, py] = bikePos(b); list.push({ k: px - py + 0.05, f: () => { drawBike(S, b); drawOccluders(S, b); } }); }
   for (const c of S.cells) list.push({ k: c.x - c.y + 0.03, f: () => drawCell(S, c) });
   for (const py of S.A.pylons) list.push({ k: py.x - py.y + 0.04, f: () => drawPylon(S, py) });
   list.sort((a, b) => a.k - b.k);
-  let deckDrawn = false;
-  for (const it of list) {
-    if (!deckDrawn && it.k >= 50) { drawFeatures(S, 'deck'); deckDrawn = true; }
-    it.f();
-  }
-  if (!deckDrawn) drawFeatures(S, 'deck');
+  for (const it of list) it.f();
   drawDerezzes(S);
-  drawRim(S, true);
   drawBoss(S);
   drawParticles(dt);
   applyBloom(opts.bloom == null ? 1 : opts.bloom);
+  // keep this frame's world, without the HUD, for a lens pull when the camera changes zoom
+  const snap = G.worldSnap || (G.worldSnap = canvas(LW, LH));
+  const sg = snap.getContext('2d'); sg.imageSmoothingEnabled = true;
+  try { sg.clearRect(0, 0, LW, LH); sg.drawImage(ctx.canvas, 0, 0, LW, LH); } catch (e) {}
+  drawLens();
 }
 
 // ---------------------------------------------------------------- HUD and typing
@@ -647,12 +858,13 @@ function keycap(x, y, label, active, col, part) {
 function drawTyping(S) {
   const P = Sim.player(S), ty = S.typing;
   if (!P.alive || S.cleared) return;
+  if (S.countdown > 0 && S.countdown > 3.2 * 0.14) return;   // the rider is still running in
   const [px, py] = bikePos(P);
-  const [sx, sy] = iso(px, py, bikeLevel(P));
+  const [sx, sy] = iso(px, py, bikeLevel(P, S));
   // steer keys sit to the bike's left and right, in the direction a turn would go
   const L = (P.d + 3) % 4, R = (P.d + 1) % 4;
-  const [lx, ly] = iso(px + DX[L] * 1.5, py + DY[L] * 1.5, bikeLevel(P));
-  const [rx, ry] = iso(px + DX[R] * 1.5, py + DY[R] * 1.5, bikeLevel(P));
+  const [lx, ly] = iso(px + DX[L] * 1.5, py + DY[L] * 1.5, bikeLevel(P, S));
+  const [rx, ry] = iso(px + DX[R] * 1.5, py + DY[R] * 1.5, bikeLevel(P, S));
   const pendL = P.queue[0] === 'L', pendR = P.queue[0] === 'R';
   keycap(lx, ly - 22, ty.L, pendL, COL.player, ty.lT);
   keycap(rx, ry - 22, ty.R, pendR, COL.player, ty.rT);
@@ -661,12 +873,12 @@ function drawTyping(S) {
   const w = ty.word, total = textW(w, 2) + 14;
   const wx = Math.round(clamp(sx - total / 2, 4, LW - total - 4)), wy = Math.round(clamp(sy - 82, 24, LH - 60));
   const gold = ty.ability;
-  panel(wx, wy, total, 24, 0.92, gold ? COL.gold : COL.player);
+  panel(wx, wy, total, 27, 0.92, gold ? COL.gold : COL.player);
   let pen = wx + 7;
   const shake = G.t - (G.typoT || -9) < 0.15 ? Math.round(Math.sin(G.t * 90) * 2) : 0;
   for (let i = 0; i < w.length; i++) {
     const c = i < ty.typed ? (gold ? COL.gold : COL.player) : i === ty.typed ? COL.white : COL.dim;
-    if (i === ty.typed) rect(pen, wy + 20, textW(w[i], 2) - 2, 2, G.t - (G.typoT || -9) < 0.25 ? COL.red : COL.white);
+    if (i === ty.typed) rect(pen, wy + 23, textW(w[i], 2) - 2, 2, G.t - (G.typoT || -9) < 0.25 ? COL.red : COL.white);
     pen = text(w[i], pen + (i === ty.typed ? shake : 0), wy + 1, c, 2) - (i === ty.typed ? shake : 0);
   }
 }
@@ -719,12 +931,12 @@ function handleEvents(S) {
   const P = Sim.player(S);
   for (const e of Sim.takeEvents(S)) {
     switch (e.type) {
-      case 'count': SND('count'); toast(String(e.n), { dur: 0.9, scale: 5, y: 120, col: COL.player }); break;
+      case 'count': SND('count'); toast(String(e.n), { dur: 0.9, scale: 4, y: 250, col: COL.player }); break;
       case 'go': SND('go'); toast('GO', { dur: 0.7, scale: 5, y: 120, col: COL.white }); if (S.A.boss) MUS.play('boss', { now: true, fade: 0.2 }); else MUS.play(S.sector % 2 ? 'sector' : 'sector2', { now: true, fade: 0.2 }); break;
       case 'turn': if (e.bike === 0) SND('turn', { vol: 0.5 }); break;
       case 'word': {
         SND('word_pulse', { vol: 0.35 });
-        const [x, y] = iso(...bikePos(P), bikeLevel(P));
+        const [x, y] = iso(...bikePos(P), bikeLevel(P, S));
         ring(x + G.cam.x, y + G.cam.y, e.ability ? 'gold' : 'player', 26, 0.35);
         break;
       }
@@ -733,7 +945,7 @@ function handleEvents(S) {
         G.typoT = G.t;
         if (e.free) { toast('CLEAN CODE', { dur: 0.8, scale: 1, y: 60, col: COL.player }); break; }
         SND('wall_cut', { delay: AFTER_KEY, vol: 0.5 }); SND('sputter', { delay: AFTER_KEY + 0.05, vol: 0.35 });
-        const [x, y] = iso(...bikePos(P), bikeLevel(P));
+        const [x, y] = iso(...bikePos(P), bikeLevel(P, S));
         for (let k = 0; k < 10; k++) spark(x + G.cam.x, y + G.cam.y - 6, 'red');
         break;
       }
@@ -781,6 +993,10 @@ function handleEvents(S) {
       case 'core_restored': toast('CORE RESTORED', { dur: 1.4, scale: 1, y: 140, col: COL.player }); break;
       case 'rez': SND('rez_in'); break;
       case 'gameover': Audio.sting('gameover'); break;
+      case 'collapse_warn': if (e.ring <= 1) toast('THE ARENA IS CLOSING', { dur: 2, scale: 2, y: 64, col: COL.red }); SND('fault_warn', { vol: 0.35 }); break;
+      case 'collapse': SND('fault_fall', { vol: 0.5 }); G.cam.shake = Math.max(G.cam.shake, 3); break;
+      case 'jump': if (e.bike === 0) SND('portal', { vol: 0.6 }); break;
+      case 'land': if (e.bike === 0) { SND('gate_move', { vol: 0.4 }); G.cam.shake = Math.max(G.cam.shake, 4); } break;
     }
   }
 }
@@ -824,10 +1040,10 @@ function newRun() {
 }
 function startSector() {
   G.S = Sim.startSector(G.run);
-  G.angle = {}; G.particles = []; G.rings = []; derezzes.length = 0; G.cam.fx = null; G.camTarget = null; G.floorKey = '';
+  G.angle = {}; G.particles = []; G.rings = []; derezzes.length = 0; G.cam.cx = null; G.camTarget = null; G.floorKey = ''; setZoom(1); G.lens = null;
   setMode('play');
   MUS.play('boot', { now: true, fade: 0.3 });
-  toast(G.S.A.boss ? 'OVERSEER' : 'SECTOR ' + String(G.S.sector).padStart(2, '0'), { dur: 2.6, scale: 3, y: 70, col: G.S.A.boss ? COL.boss : COL.player, sub: sectorHint(G.S) });
+  toast(G.S.A.boss ? 'OVERSEER' : 'SECTOR ' + String(G.S.sector).padStart(2, '0'), { dur: 2.6, scale: 3, y: 44, col: G.S.A.boss ? COL.boss : COL.player, sub: sectorHint(G.S) });
 }
 function sectorHint(S) {
   const s = S.sector;
@@ -912,13 +1128,15 @@ function updatePlay(dt) {
 // ---------------------------------------------------------------- screens
 function drawPlay(dt) {
   const S = G.S;
+  updateZoom(S, dt);
   updateCamera(S, dt);
   drawScene(S, dt);
   drawLances();
   drawTyping(S);
   drawHud(S);
+  drawMinimap(S);
   drawToasts();
-  if (S.countdown > 0 && S.countdown < 3.2) textC('steer keys pick your line', LW / 2, LH - 58, COL.white, 2, 0.9);
+  
   if (G.flash > 0) { rect(0, 0, LW, LH, COL.white, G.flash * 0.6); G.flash = Math.max(0, G.flash - dt * 2); }
 }
 function drawCompile(dt) {
@@ -947,6 +1165,7 @@ function drawTitle(dt) {
   demoStep(dt);
   const D = G.demo;
   G.camTarget = null;
+  setZoom(0.5);
   updateCamera(D, dt, 2);
   drawScene(D, dt);
   rect(0, 0, LW, LH, COL.ink, 0.35);
@@ -962,6 +1181,7 @@ function drawTitle(dt) {
 }
 function drawHowto(dt) {
   demoStep(dt);
+  setZoom(0.5);
   updateCamera(G.demo, dt, 2);
   drawScene(G.demo, dt, { bloom: 0.5 });
   rect(0, 0, LW, LH, COL.ink, 0.75);
@@ -974,9 +1194,10 @@ function drawHowto(dt) {
     ['SEAL', 'box a rival in to win'],
     ['ENTER', 'fire a power cell'],
     ['BKSP', 'brake'],
+    ['PADS', 'jump the gaps'],
     ['BOSS', 'circle its pylons'],
   ];
-  rows.forEach(([a, b], i) => { textR(a, 128, 54 + i * 34, COL.player, 2); text(b, 140, 54 + i * 34, COL.white, 2); });
+  rows.forEach(([a, b], i) => { textR(a, 128, 50 + i * 30, COL.player, 2); text(b, 140, 50 + i * 30, COL.white, 2); });
   textC('enter to go back', LW / 2, LH - 30, COL.text, 2);
 }
 function drawPause(dt) {
@@ -1115,8 +1336,9 @@ function drawShowcase(t, dt) {
   const focus = alive.length ? alive[shot % alive.length] : S.bikes[0];
   const [fx, fy] = bikePos(focus);
   const lx = fx + DX[focus.d] * 1.2, ly = fy + DY[focus.d] * 1.2;
-  G.camTarget = [(lx + ly) * HX, (lx - ly) * HY - 14];   // the rider sits just below centre: the clear band under the logo
-  if (lt % 2 < dt * 1.5 || G.cam.fx == null) { G.cam.fx = G.camTarget[0]; G.cam.fy = G.camTarget[1]; }
+  setZoom(1);
+  G.camTarget = [lx - 1.6, ly + 1.6, bikeLevel(focus, S)];   // the rider sits just below centre: the clear band under the logo
+  if (lt % 2 < dt * 1.5 || G.cam.cx == null) { G.cam.cx = G.camTarget[0]; G.cam.cy = G.camTarget[1]; G.cam.cl = G.camTarget[2]; }
   updateCamera(S, dt);
   drawScene(S, dt);
   if (lt % 2 < 0.1 && lt > 1) rect(0, 0, LW, LH, COL.white, 0.5 * (1 - (lt % 2) / 0.1));

@@ -29,9 +29,9 @@ function plan(S, P, prof, rnd) {
     const probe = { ...P, x: P.x + (P.p > 0 ? DX[P.d] : 0), y: P.y + (P.p > 0 ? DY[P.d] : 0) };
     if (AI.nextCellBlocked(S, probe, d)) continue;
     const nx = probe.x + DX[d], ny = probe.y + DY[d];
-    const room = AI.flood(S, nx, ny, P.level, 150, P);
+    const room = AI.flood(S, nx, ny, AI.levelInto(S, nx, ny, P.level, d).level, 150, P);
     let s = Math.min(room.size, 150) * 1.0 + (room.size < 40 ? -200 : 0) + (room.exit ? 15 : 0);
-    let runway = 0; for (let k = 1; k <= 7; k++) { const qx = probe.x + DX[d] * k, qy = probe.y + DY[d] * k; if (AI.blockedAt(S, qx, qy, P.level, P, true)) break; runway++; }
+    const runway = runwayFrom(S, probe.x, probe.y, P.level, d, 7, P);
     s += runway * 4;
     if (target) {
       const tx = target.ring ? target.x : target.x + DX[target.d] * 3, ty = target.ring ? target.y : target.y + DY[target.d] * 3;
@@ -47,11 +47,21 @@ function plan(S, P, prof, rnd) {
   return best;
 }
 // noise that holds still for a cell, so a bot doesn't dither between frames
+// how many cells a rider can go straight from (x, y, level) along d, terrain and walls included
+function runwayFrom(S, x, y, level, d, max, P) {
+  let n = 0;
+  for (let k = 1; k <= max; k++) {
+    const nx = x + DX[d], ny = y + DY[d];
+    const L = V._ai.levelInto(S, nx, ny, level, d);
+    if (!L.ok || V._ai.blockedAt(S, nx, ny, L.level, P, true)) break;
+    x = nx; y = ny; level = L.level; n++;
+  }
+  return n;
+}
 function hashNoise(P, side) { let h = (P.x * 73856093) ^ (P.y * 19349663) ^ ((side === 'L' ? 1 : side === 'R' ? 2 : 3) * 83492791) ^ (P.d * 2654435761); h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
 function danger(S, P, prof) {
   // a sensible typist eases off the words when a wall is coming up fast
-  let runway = 0;
-  for (let k = 1; k <= 8; k++) { if (V._ai.blockedAt(S, P.x + DX[P.d] * k, P.y + DY[P.d] * k, P.level, P, true)) break; runway++; }
+  const runway = runwayFrom(S, P.x, P.y, P.level, P.d, 8, P);
   return runway < P.speed * (prof.react + 0.3) * prof.smart;
 }
 function nearestRival(S, P) {

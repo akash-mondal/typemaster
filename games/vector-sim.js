@@ -4,7 +4,7 @@
  * The game file draws and plays sound; everything that decides who lives lives here, so a
  * bot can play thousands of sectors without a screen (tools/vector/balance.mjs).
  *
- * Units: cells and seconds. Directions: 0 +x, 1 +y, 2 -x, 3 -y. Levels: 0 floor, 1 deck.
+ * Units: cells and seconds. Directions: 0 +x, 1 +y, 2 -x, 3 -y. Tiers: 0 floor, 1 and 2 raised; -1 void.
  * A bike travels from one cell centre to the next; p in [0,1) is how far along it is.
  * It lays its wall into a cell as it leaves it (p crosses 0.5). A wall cell lives while its
  * stamp is ahead of its owner's tail, so every trail is a fixed-length snake.
@@ -105,94 +105,106 @@ export function takeUpgrade(run, key) {
   if (key === 'hardened') run.cores++;
 }
 
-// ---------------------------------------------------------------- arenas
-function arenaSize(sector) { return Math.min(30, 18 + 2 * Math.floor((sector - 1) / 2) * 1); }
+// ---------------------------------------------------------------- the stadium
+// A height field: every cell has one surface, h = -1 (void) or tier 0..2. A ramp cell sits on its low
+// tier and climbs one tier in its `ramp` direction. A jump pad throws a bike JUMP cells along its axis.
+export const JUMP = 5;
+function arenaSize(sector) { return Math.min(96, 64 + 8 * Math.floor((sector - 1) / 3)); }
 
 export function buildArena(run, sector) {
   const rnd = run.rnd;
   const boss = sector % 5 === 0;
-  const n = boss ? 24 : arenaSize(sector);
+  const n = boss ? 56 : arenaSize(sector);
+  const N = n * n;
   const A = {
-    n, boss, cells: n * n,
-    solid: new Uint8Array(n * n),        // pylons and gate bars (level 0)
-    mod: new Float32Array(n * n).fill(1), // speed strips
-    deck: new Uint8Array(n * n),         // a level-1 platform above this cell
-    ramp: new Int8Array(n * n).fill(-1), // uphill direction of a ramp in this cell
-    portal: new Int32Array(n * n).fill(-1),
-    fault: [], gates: [], pylons: [], spawns: [], exit: -1,
+    n, boss, cells: N,
+    h: new Int8Array(N), ramp: new Int8Array(N).fill(-1), jump: new Int8Array(N).fill(-1),
+    mod: new Float32Array(N).fill(1), solid: new Uint8Array(N),
+    pylons: [], spawns: [], exit: -1, ring: 0, warnRing: -1, collapseAt: 0,
+    tiers: {}, moat: -1,
   };
   const at = (x, y) => y * n + x;
-  const mirror = (x, y) => [n - 1 - x, n - 1 - y];
-  const free = (x, y) => x > 1 && y > 1 && x < n - 2 && y < n - 2 && !A.solid[at(x, y)] && A.ramp[at(x, y)] < 0 && A.portal[at(x, y)] < 0;
-  const cx = n >> 1;
+  const c = n >> 1;
+  const ring = (x, y) => Math.floor(Math.max(Math.abs(x - c + 0.5), Math.abs(y - c + 0.5)));
+  // every feature is placed in one quarter and turned four times round the centre
+  const rot = (x, y, k) => { for (let i = 0; i < k; i++) [x, y] = [n - 1 - y, x]; return [x, y]; };
+  const rotDir = (d, k) => (d + k) % 4;
+  const put4 = (x, y, fn) => { for (let k = 0; k < 4; k++) { const [rx, ry] = rot(x, y, k); if (rx > 0 && ry > 0 && rx < n - 1 && ry < n - 1) fn(at(rx, ry), k, rx, ry); } };
 
-  if (!boss && sector >= 3) {   // speed and slow strips, mirrored
-    const k = 2 + Math.floor(rnd() * 2);
-    for (let i = 0; i < k; i++) {
-      const horiz = rnd() < 0.5, len = 4 + Math.floor(rnd() * 5), fast = rnd() < 0.65;
-      const x0 = 3 + Math.floor(rnd() * (n - 6 - (horiz ? len : 0))), y0 = 3 + Math.floor(rnd() * (n - 6 - (horiz ? 0 : len)));
-      for (let j = 0; j < len; j++) {
-        const x = x0 + (horiz ? j : 0), y = y0 + (horiz ? 0 : j);
-        A.mod[at(x, y)] = fast ? 1.5 : 0.6;
-        const [mx, my] = mirror(x, y); A.mod[at(mx, my)] = fast ? 1.5 : 0.6;
-      }
+  const a = Math.round(n * (boss ? 0.1 : 0.14));        // the first tier's half-width
+  const bb = Math.round(n * 0.06);                        // the crown tier's half-width
+  const m = a + 5;                                        // the moat ring
+  A.tiers = { a, b: bb, m };
+  // tiers: a stepped plateau in the middle
+  for (let y = 1; y < n - 1; y++) for (let x = 1; x < n - 1; x++) {
+    const r = ring(x, y);
+    A.h[at(x, y)] = r < bb && !boss ? 2 : r < a ? 1 : 0;
+  }
+  // ramps up to the first tier: two cells wide, in the middle of each side, climbing inward
+  for (const off of [-1, 0]) put4(c + off, c - a - 1, (i, k) => { A.ramp[i] = rotDir(1, k); A.h[i] = 0; });
+  // ramps up to the crown sit off-centre, so a climb winds round
+  if (!boss) for (const off of [bb - 3, bb - 2]) put4(c + off, c - bb - 1, (i, k) => { A.ramp[i] = rotDir(1, k); A.h[i] = 1; });
+
+  if (!boss && sector >= 2) {
+    // corner terraces with two ramps each
+    const s0 = m + 7, w = Math.max(4, Math.min(Math.round(n * 0.1), (n >> 1) - s0 - 6));
+    for (let y = c + s0; y < c + s0 + w; y++) for (let x = c + s0; x < c + s0 + w; x++) put4(x, y, i => { A.h[i] = 1; });
+    const mid = c + s0 + (w >> 1);
+    for (const off of [-1, 0]) {
+      put4(c + s0 - 1, mid + off, (i, k) => { A.ramp[i] = rotDir(0, k); A.h[i] = 0; });
+      put4(mid + off, c + s0 - 1, (i, k) => { A.ramp[i] = rotDir(1, k); A.h[i] = 0; });
+    }
+    // speed lanes: a ring road round the moat and runways out from the plateau ramps
+    for (let y = 1; y < n - 1; y++) for (let x = 1; x < n - 1; x++) {
+      const i = at(x, y), r = ring(x, y);
+      if (A.h[i] !== 0 || A.ramp[i] >= 0) continue;
+      if (r === m + 5) A.mod[i] = 1.5;
+      if ((Math.abs(x - c + 0.5) < 1 || Math.abs(y - c + 0.5) < 1) && r > a && r < m) A.mod[i] = 1.5;
     }
   }
-  if (!boss && sector >= 6) {   // decks with a ramp, mirrored
-    const k = sector >= 11 ? 2 : 1;
-    for (let i = 0; i < k; i++) {
-      const w = 3 + Math.floor(rnd() * 3), h = 3 + Math.floor(rnd() * 2);
-      const x0 = 3 + Math.floor(rnd() * (cx - w - 3)), y0 = 3 + Math.floor(rnd() * (n - h - 6));
-      for (const [ox, oy, flip] of [[x0, y0, false], [n - x0 - w, n - y0 - h, true]]) {
-        for (let y = oy; y < oy + h; y++) for (let x = ox; x < ox + w; x++) A.deck[at(x, y)] = 1;
-        // the ramp climbs into the deck from the middle of one long side
-        const rx = ox + (w >> 1), ry = flip ? oy - 1 : oy + h;
-        if (ry > 1 && ry < n - 2) { A.ramp[at(rx, ry)] = flip ? 1 : 3; }
-      }
+  if (!boss && sector >= 3) {
+    // a moat of void round the plateau: four bridges on the axes, jump pads across the sides
+    A.moat = m;
+    for (let y = 1; y < n - 1; y++) for (let x = 1; x < n - 1; x++) {
+      const r = ring(x, y);
+      if (r !== m && r !== m + 1) continue;
+      const onAxis = Math.abs(x - c + 0.5) < 2 || Math.abs(y - c + 0.5) < 2;
+      if (!onAxis) A.h[at(x, y)] = -1;
+    }
+    const q = Math.round(m * 0.55);
+    for (const px of [c - q - 1, c - q, c + q - 1, c + q]) {
+      put4(px, c - m + 2 - 1, (i, k) => { A.jump[i] = rotDir(3, k); });   // inside, launching outward
+      put4(px, c - m - 3 - 1, (i, k) => { A.jump[i] = rotDir(1, k); });   // outside, launching inward
     }
   }
-  if (!boss && sector >= 8) {   // portal pairs
-    const k = sector >= 13 ? 2 : 1;
-    for (let i = 0; i < k; i++) {
-      let tries = 0, x, y;
-      do { x = 3 + Math.floor(rnd() * (n - 6)); y = 3 + Math.floor(rnd() * (n - 6)); tries++; } while ((!free(x, y) || A.deck[at(x, y)] || Math.abs(x - cx) < 3) && tries < 50);
-      const [mx, my] = mirror(x, y);
-      if (tries < 50 && free(mx, my) && !A.deck[at(mx, my)]) { A.portal[at(x, y)] = at(mx, my); A.portal[at(mx, my)] = at(x, y); }
-    }
-  }
-  if (!boss && sector >= 10) {  // fault tiles in small clusters
-    const k = 2 + Math.floor(rnd() * 2);
-    for (let i = 0; i < k; i++) {
-      const x0 = 4 + Math.floor(rnd() * (n - 8)), y0 = 4 + Math.floor(rnd() * (n - 8));
-      for (const [x, y] of [[x0, y0], [x0 + 1, y0], [x0, y0 + 1], [x0 + 1, y0 + 1]]) {
-        for (const [fx, fy] of [[x, y], mirror(x, y)]) if (free(fx, fy) && !A.deck[at(fx, fy)]) A.fault.push({ i: at(fx, fy), state: 'idle', t: 2 + rnd() * 8 });
-      }
-    }
-  }
-  if (!boss && sector >= 12) {  // a gate: two lanes of three cells that take turns being barred
-    const y = cx, xs = [cx - 4, cx + 2];
-    const laneA = [], laneB = [];
-    for (let j = 0; j < 3; j++) { laneA.push(at(xs[0] + j, y)); laneB.push(at(xs[1] + j, y)); }
-    A.gates.push({ a: laneA, b: laneB, open: 'a', t: 3 });
-    for (const i of laneB) A.solid[i] = 1;
+  if (!boss && sector >= 6) {
+    // pits of void out on the diagonals, each with a pad either side
+    const d = m + 2, w = 2;
+    for (let y = c + d; y < c + d + w; y++) for (let x = c + d; x < c + d + w; x++) put4(x, y, i => { A.h[i] = -1; });
   }
   if (boss) {
-    const spots = [[cx, 5], [5, n - 6], [n - 6, n - 6]];
-    for (const [x, y] of spots) { A.solid[at(x, y)] = 1; A.pylons.push({ i: at(x, y), x, y, alive: true }); }
+    const spots = [[c, 7], [8, n - 9], [n - 9, n - 9]];
+    for (const [x, y] of spots) { A.h[at(x, y)] = 0; A.solid[at(x, y)] = 1; A.pylons.push({ i: at(x, y), x, y, alive: true }); }
   }
-  // spawns: the player at the bottom middle heading up the screen; rivals around the rim
+  // spawns: the player at the bottom middle heading up the screen; rivals round the edge
+  const e = 5;
   A.spawns = [
-    { x: cx, y: n - 4, d: 3 }, { x: cx - 1, y: 3, d: 1 }, { x: 3, y: cx, d: 0 }, { x: n - 4, y: cx + 1, d: 2 },
-    { x: 4, y: 4, d: 0 }, { x: n - 5, y: n - 5, d: 2 }, { x: n - 5, y: 4, d: 1 }, { x: 4, y: n - 5, d: 3 },
+    { x: c, y: n - e, d: 3 }, { x: c - 1, y: e - 1, d: 1 }, { x: e - 1, y: c, d: 0 }, { x: n - e, y: c - 1, d: 2 },
+    { x: e + 2, y: e + 2, d: 0 }, { x: n - e - 3, y: n - e - 3, d: 2 }, { x: n - e - 3, y: e + 2, d: 1 }, { x: e + 2, y: n - e - 3, d: 3 },
   ];
-  for (const s of A.spawns) { const i = at(s.x, s.y); A.solid[i] = 0; A.deck[i] = 0; A.ramp[i] = -1; A.portal[i] = -1; A.mod[i] = 1; }
+  for (const sp of A.spawns) for (let k = -2; k <= 2; k++) {
+    const i = at(sp.x + DX[sp.d] * k, sp.y + DY[sp.d] * k);
+    A.h[i] = 0; A.ramp[i] = -1; A.jump[i] = -1; A.solid[i] = 0;
+  }
+  A.collapseAt = boss ? 1e9 : Math.max(35, 60 - sector * 2);
+  A.collapseStop = boss ? 0 : (n >> 1) - (A.moat > 0 ? m + 7 : a + 8);
   return A;
 }
 
 // ---------------------------------------------------------------- sector
 function rivalLineup(sector, rnd) {
   if (sector % 5 === 0) return [];
-  const count = Math.min(6, sector === 1 ? 1 : 1 + Math.floor(sector / 2));
+  const count = Math.min(8, 2 + Math.floor((sector - 1) / 2));
   const kinds = Object.keys(RIVALS).filter(k => RIVALS[k].from <= sector);
   const out = [];
   // the newest kind always appears in the sector that introduces it
@@ -229,9 +241,10 @@ export function startSector(run) {
   const n = A.n;
   const S = {
     run, sector, A, t: 0, events: [], over: false, cleared: false, exitOpen: false, clearT: 0,
-    wallOwner: [new Int16Array(n * n).fill(-1), new Int16Array(n * n).fill(-1)],
-    wallStamp: [new Float32Array(n * n), new Float32Array(n * n)],
-    wallExpire: [new Float32Array(n * n), new Float32Array(n * n)], // for owner -2 (boss pillars)
+    wallOwner: [0, 1, 2].map(() => new Int16Array(n * n).fill(-1)),
+    wallStamp: [0, 1, 2].map(() => new Float32Array(n * n)),
+    wallExpire: [0, 1, 2].map(() => new Float32Array(n * n)), // for owner -2 (boss pillars)
+    ringT: 0,
     bikes: [], cells: [], cellT: 6, sealT: 0,
     typing: null, energy: upN(run, 'battery') ? 50 : 0, brakeLeft: T.brakeReserve + 0.5 * upN(run, 'anchor'), braking: false,
     pulseV: 0, sputter: 0, streak: 0, trail: T.trailBase, carried: [], freeTypo: upN(run, 'clean') > 0,
@@ -270,7 +283,6 @@ function trailLength(S, b) {
 function layWall(S, b, x, y, level) {
   if (!inside(S, x, y)) return;
   const i = idx(S, x, y);
-  if (S.A.portal[i] >= 0) return;
   S.wallOwner[level][i] = b.id; S.wallStamp[level][i] = b.dist;
   b.lastWall = i; b.lastWallLevel = level;
   if (b.spike > 0) {   // spike: short side walls one cell out
@@ -281,34 +293,51 @@ function layWall(S, b, x, y, level) {
   }
 }
 
-// what occupies a cell for a bike on `level` arriving from direction d
+// moving from the cell behind (x, y) into (x, y) along d, riding at fromLevel.
+// Returns { ok, level, fall }: ok false is a wall of terrain (a cliff, a ramp's side); fall is void.
 function levelInto(S, x, y, fromLevel, d) {
-  const i = idx(S, x, y);
-  const r = S.A.ramp[i];
-  if (r >= 0) {
-    if (fromLevel === 0 && d === r) return { level: 1, ok: true };      // climbing
-    if (fromLevel === 1 && d === back(r)) return { level: 0, ok: true }; // descending
-    return { level: fromLevel, ok: false };                              // the side of a ramp
+  const A = S.A, n = A.n;
+  if (!inside(S, x, y)) return { ok: false, level: fromLevel };
+  const i = y * n + x;
+  const th = A.h[i];
+  if (th < 0) return { ok: false, fall: true, level: fromLevel };
+  const fx = x - DX[d], fy = y - DY[d];
+  const fr = inside(S, fx, fy) ? A.ramp[fy * n + fx] : -1;
+  const r = A.ramp[i];
+  if (fr >= 0) {
+    const L = A.h[fy * n + fx];
+    if (r >= 0 && r === fr && th === L && (d === left(fr) || d === right(fr))) return { ok: true, level: th };  // across a wide ramp
+    if (d === fr) return th === L + 1 && r < 0 ? { ok: true, level: th } : { ok: false, level: fromLevel };
+    if (d === back(fr)) return th <= L && r < 0 ? { ok: true, level: th } : { ok: false, level: fromLevel };
+    return { ok: false, level: fromLevel };
   }
-  if (fromLevel === 1) return { level: S.A.deck[i] ? 1 : 0, ok: true };  // off an open edge you drop
-  return { level: 0, ok: true };
+  if (r >= 0) {
+    if (d === r && fromLevel === th) return { ok: true, level: th };
+    if (d === back(r) && fromLevel === th + 1) return { ok: true, level: th };
+    return { ok: false, level: fromLevel };
+  }
+  if (th > fromLevel) return { ok: false, level: fromLevel };   // a cliff face
+  return { ok: true, level: th, drop: th < fromLevel };
 }
+const surface = (S, i) => Math.max(0, S.A.h[i]);
 function blockedAt(S, x, y, level, b, ignoreBikes) {
   if (!inside(S, x, y) || x === 0 || y === 0 || x === S.A.n - 1 || y === S.A.n - 1) {
     const i = inside(S, x, y) ? idx(S, x, y) : -1;
     return !(S.exitOpen && i === S.A.exit && b && b.kind === 'player');
   }
   const i = idx(S, x, y);
-  if (level === 0 && S.A.solid[i]) return true;
-  if (level === 0 && S.faultGone && S.faultGone[i]) return true;
-  if (wallAlive(S, level, i)) {
+  if (S.A.h[i] < 0) return true;
+  if (S.A.solid[i]) return true;
+  const lv = surface(S, i);
+  if (wallAlive(S, lv, i)) {
     if (b && b.burst > 0) return false;
-    if (b && b.phase > 0 && S.wallOwner[level][i] === b.id) return false;
+    if (b && b.phase > 0 && S.wallOwner[lv][i] === b.id) return false;
     return true;
   }
   return false;
 }
 function nextCellBlocked(S, b, d) {
+  if (b.air > 0) return false;
   const x = b.x + DX[d], y = b.y + DY[d];
   if (!inside(S, x, y)) return true;
   const L = levelInto(S, x, y, b.level, d);
@@ -441,7 +470,7 @@ function usePower(S, b, kind) {
   else if (kind === 'phase') b.phase = T.phaseTime;
   else if (kind === 'spike') b.spike = T.spikeTime;
   else if (kind === 'surge') { for (const o of S.bikes) o.surge = T.surgeTime + (o === b ? 0 : 0); S.events.push({ type: 'surge' }); }
-  else if (kind === 'reset') { S.wallOwner[0].fill(-1); S.wallOwner[1].fill(-1); for (const o of S.bikes) o.tail = o.dist; }
+  else if (kind === 'reset') { for (const w of S.wallOwner) w.fill(-1); for (const o of S.bikes) o.tail = o.dist; }
   else if (kind === 'lance') {
     const range = T.lanceRange + 4 * upN(S.run, 'lens');
     let x = b.x, y = b.y;
@@ -450,8 +479,8 @@ function usePower(S, b, kind) {
       x += DX[b.d]; y += DY[b.d];
       if (!inside(S, x, y) || x === 0 || y === 0 || x === S.A.n - 1 || y === S.A.n - 1) break;
       const i = idx(S, x, y);
-      S.wallOwner[b.level][i] = -1;
-      for (const o of S.bikes) if (o !== b && o.alive && o.x === x && o.y === y && o.level === b.level) hits.push(o);
+      for (const w of S.wallOwner) w[i] = -1;
+      for (const o of S.bikes) if (o !== b && o.alive && o.x === x && o.y === y && !(o.air > 0)) hits.push(o);
     }
     S.events.push({ type: 'lance', x0: b.x, y0: b.y, x1: x, y1: y, d: b.d });
     for (const o of hits) derez(S, o, 'lance', b);
@@ -460,7 +489,7 @@ function usePower(S, b, kind) {
 function pulse(S, b) {
   S.events.push({ type: 'pulse', x: b.x, y: b.y });
   const r = T.pulseRadius;
-  for (let lv = 0; lv < 2; lv++)
+  for (let lv = 0; lv < 3; lv++)
     for (let y = b.y - r; y <= b.y + r; y++) for (let x = b.x - r; x <= b.x + r; x++)
       if (inside(S, x, y) && Math.abs(x - b.x) + Math.abs(y - b.y) <= r + 1) S.wallOwner[lv][idx(S, x, y)] = -1;
   for (const o of S.bikes) {
@@ -511,25 +540,27 @@ function respawn(S) {
 // ---------------------------------------------------------------- flood fill
 function flood(S, sx, sy, level, cap, b) {
   const n = S.A.n;
-  const seen = new Set(), stack = [[sx, sy]];
+  const seen = new Set(), stack = [[sx, sy, level]];
   let exit = false, playerWall = false;
   while (stack.length && seen.size < cap) {
-    const [x, y] = stack.pop();
+    const [x, y, lv] = stack.pop();
     const i = y * n + x;
     if (seen.has(i)) continue;
     seen.add(i);
+    if (S.A.jump[i] >= 0) exit = true;
     for (let d = 0; d < 4; d++) {
       const nx = x + DX[d], ny = y + DY[d];
       if (!inside(S, nx, ny)) continue;
       const j = ny * n + nx;
       if (seen.has(j)) continue;
-      if (level === 1 && !S.A.deck[j] && S.A.ramp[j] < 0) { exit = true; continue; }
-      if (S.A.ramp[j] >= 0 || S.A.portal[j] >= 0) { exit = true; continue; }
-      if (blockedAt(S, nx, ny, level, b, true)) {
-        if (wallAlive(S, level, j) && S.wallOwner[level][j] === 0) playerWall = true;
+      const L = levelInto(S, nx, ny, lv, d);
+      if (!L.ok) continue;
+      if (blockedAt(S, nx, ny, L.level, b, true)) {
+        const wl = surface(S, j);
+        if (wallAlive(S, wl, j) && S.wallOwner[wl][j] === 0) playerWall = true;
         continue;
       }
-      stack.push([nx, ny]);
+      stack.push([nx, ny, L.level]);
     }
   }
   return { size: seen.size, exit, playerWall, capped: seen.size >= cap };
@@ -537,6 +568,7 @@ function flood(S, sx, sy, level, cap, b) {
 
 // ---------------------------------------------------------------- AI
 function think(S, b) {
+  if (b.air > 0) return;
   const P = player(S);
   const rnd = S.run.rnd;
   const opts = [b.d, left(b.d), right(b.d)];
@@ -581,7 +613,7 @@ function aiTarget(S, b, P) {
       return { x: P.x + DX[P.d] * ahead + DX[side] * 2, y: P.y + DY[P.d] * ahead + DY[side] * 2 };
     }
     case 'warden': return { x: px, y: py };
-    case 'drone': return null;
+    case 'drone': return S.t % 12 < 6 ? { x: P.x, y: P.y } : null;
     case 'mirror': return null;
   }
   return null;
@@ -630,13 +662,14 @@ function bossStep(S, dt) {
     a.t += dt;
     if (a.kind === 'sweep' && a.t >= a.warn && !a.fired) { a.fired = true; S.events.push({ type: 'boss_sweep', horiz: a.horiz, line: a.line }); }
     if (a.kind === 'sweep' && a.fired && a.t < a.warn + a.live) {
-      for (const b of S.bikes) if (b.alive && b.level === 0 && (a.horiz ? b.y === a.line : b.x === a.line)) derez(S, b, 'sweep');
+      for (const b of S.bikes) if (b.alive && !(b.air > 0) && (a.horiz ? b.y === a.line : b.x === a.line)) derez(S, b, 'sweep');
     }
     if (a.kind === 'drop' && a.t >= a.warn && !a.fired) {
       a.fired = true;
       for (const i of a.cells) {
-        for (const b of S.bikes) if (b.alive && b.level === 0 && idx(S, b.x, b.y) === i) derez(S, b, 'drop');
-        S.wallOwner[0][i] = -2; S.wallExpire[0][i] = S.t + 5;
+        if (S.A.h[i] < 0) continue;
+        for (const b of S.bikes) if (b.alive && !(b.air > 0) && idx(S, b.x, b.y) === i) derez(S, b, 'drop');
+        const lv = surface(S, i); S.wallOwner[lv][i] = -2; S.wallExpire[lv][i] = S.t + 5;
       }
       S.events.push({ type: 'boss_drop', cells: a.cells });
     }
@@ -712,10 +745,10 @@ function spawnCell(S) {
   for (let k = 0; k < 40; k++) {
     const x = 2 + Math.floor(rnd() * (n - 4)), y = 2 + Math.floor(rnd() * (n - 4));
     const i = idx(S, x, y);
-    if (S.A.solid[i] || S.A.ramp[i] >= 0 || S.A.portal[i] >= 0 || S.A.deck[i] || wallAlive(S, 0, i)) continue;
+    if (S.A.h[i] < 0 || S.A.solid[i] || S.A.ramp[i] >= 0 || S.A.jump[i] >= 0 || wallAlive(S, surface(S, i), i)) continue;
     if (S.bikes.some(b => b.alive && Math.abs(b.x - x) + Math.abs(b.y - y) < 3)) continue;
     const kind = pickR(rnd, S.A.boss ? ['shield', 'lance', 'phase', 'reset'] : POWERS);
-    S.cells.push({ x, y, kind, t: 0 });
+    S.cells.push({ x, y, kind, t: 0, level: surface(S, i) });
     S.events.push({ type: 'cell_spawn', x, y, kind });
     return;
   }
@@ -723,30 +756,25 @@ function spawnCell(S) {
 
 // ---------------------------------------------------------------- hazards
 function hazardStep(S, dt) {
-  const A = S.A;
-  if (A.fault.length) {
-    S.faultGone = S.faultGone || new Uint8Array(A.cells);
-    for (const f of A.fault) {
-      f.t -= dt;
-      if (f.t > 0) continue;
-      if (f.state === 'idle') { f.state = 'warn'; f.t = 1; S.events.push({ type: 'fault_warn', i: f.i }); }
-      else if (f.state === 'warn') {
-        f.state = 'gone'; f.t = 6; S.faultGone[f.i] = 1; S.wallOwner[0][f.i] = -1;
-        S.events.push({ type: 'fault_fall', i: f.i });
-        for (const b of S.bikes) if (b.alive && b.level === 0 && idx(S, b.x, b.y) === f.i) derez(S, b, 'fall');
-      } else { f.state = 'idle'; f.t = 4 + S.run.rnd() * 6; S.faultGone[f.i] = 0; }
+  // the stadium closes in: after a while its outer rings flash and fall away, one every few seconds
+  const A = S.A, n = A.n;
+  if (S.t < A.collapseAt || A.ring >= A.collapseStop) return;
+  S.ringT -= dt;
+  if (A.warnRing < 0 && S.ringT <= 0) {
+    A.warnRing = A.ring + 1; S.ringT = 2.0;
+    S.events.push({ type: 'collapse_warn', ring: A.warnRing });
+  } else if (A.warnRing >= 0 && S.ringT <= 0) {
+    const k = A.warnRing;
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      if (Math.min(x, y, n - 1 - x, n - 1 - y) !== k) continue;
+      const i = y * n + x;
+      A.h[i] = -1; A.ramp[i] = -1; A.jump[i] = -1;
+      for (const w of S.wallOwner) w[i] = -1;
     }
-  }
-  for (const g of A.gates) {
-    g.t -= dt;
-    if (g.t <= 0) {
-      g.t = 3;
-      const closing = g.open === 'a' ? g.a : g.b, opening = g.open === 'a' ? g.b : g.a;
-      for (const i of opening) A.solid[i] = 0;
-      for (const i of closing) { A.solid[i] = 1; for (const b of S.bikes) if (b.alive && b.level === 0 && idx(S, b.x, b.y) === i) derez(S, b, 'gate'); }
-      g.open = g.open === 'a' ? 'b' : 'a';
-      S.events.push({ type: 'gate_move' });
-    }
+    for (const b of S.bikes) if (b.alive && !(b.air > 0) && Math.min(b.x, b.y, n - 1 - b.x, n - 1 - b.y) <= k) derez(S, b, 'fall');
+    S.cells = S.cells.filter(cl => Math.min(cl.x, cl.y, n - 1 - cl.x, n - 1 - cl.y) > k);
+    A.ring = k; A.warnRing = -1; S.ringT = 1.2;
+    S.events.push({ type: 'collapse', ring: k });
   }
 }
 
@@ -767,7 +795,7 @@ function bikeSpeed(S, b, dt) {
     v = (T.cruise * 0.9 + 0.12 * S.sector + b.grind) * b.speedMul;
     v = Math.min(v, T.capStart + (S.sector - 1) * T.capPerSector * 0.8);
   }
-  if (b.level === 0) v *= S.A.mod[i];
+  if (!(b.air > 0)) v *= S.A.mod[i];
   if (b.surge > 0) v += T.surgeBoost;
   return v;
 }
@@ -788,22 +816,22 @@ function bikeStep(S, b, dt) {
     if (b.teleportT <= 0 && b.p < 0.3) {
       b.teleportT = 5;
       const tx = b.x + DX[b.d] * 4, ty = b.y + DY[b.d] * 4;
-      if (inside(S, tx, ty) && !blockedAt(S, tx, ty, b.level, b)) {
+      if (inside(S, tx, ty) && !blockedAt(S, tx, ty, 0, b) && S.A.ramp[idx(S, tx, ty)] < 0) {
         S.events.push({ type: 'glitch', bike: b.id, x0: b.x, y0: b.y, x1: tx, y1: ty });
         layWall(S, b, b.x, b.y, b.level);
-        b.x = tx; b.y = ty; b.p = 0;
+        b.x = tx; b.y = ty; b.p = 0; b.level = surface(S, idx(S, tx, ty));
       }
     }
   }
 
   // grinding: a live wall in a neighbouring cell, parallel to travel
   let sides = 0, grindSide = 0;
-  for (const side of [left(b.d), right(b.d)]) {
+  if (!(b.air > 0)) for (const side of [left(b.d), right(b.d)]) {
     const gx = b.x + DX[side], gy = b.y + DY[side];
     if (!inside(S, gx, gy)) continue;
     const j = idx(S, gx, gy);
     const rim = gx === 0 || gy === 0 || gx === S.A.n - 1 || gy === S.A.n - 1;
-    if (wallAlive(S, b.level, j) || (rim && b.level === 0)) { sides += rim ? 0.5 : 1; grindSide = side === left(b.d) ? -1 : 1; }
+    if (wallAlive(S, surface(S, j), j) || rim) { sides += rim ? 0.5 : 1; grindSide = side === left(b.d) ? -1 : 1; }
   }
   const rate = T.grindRate * (1 + 0.3 * upN(S.run, 'grinder'));
   if (sides > 0) {
@@ -813,7 +841,7 @@ function bikeStep(S, b, dt) {
   b.grindSide = sides > 0 ? grindSide : 0;
 
   b.speed = bikeSpeed(S, b, dt);
-  if (b.holding) {
+  if (b.holding && !(b.air > 0)) {
     // waiting at a centre with the way ahead shut: burn buffer, look for a turn
     if (b.queue.length) applyTurn(S, b);
     if (!nextCellBlocked(S, b, b.d)) { b.holding = false; S.events.push({ type: 'unhold', bike: b.id }); }
@@ -836,9 +864,16 @@ function bikeStep(S, b, dt) {
       // crossing into the next cell: lay the wall behind, then enter
       b.p = 0.5; move -= toHalf; b.dist += toHalf;
       const nx = b.x + DX[b.d], ny = b.y + DY[b.d];
+      if (b.air > 0) {
+        // in the air: over walls and void alike; only the edge of the world stops a jump
+        if (!inside(S, nx, ny) || nx === 0 || ny === 0 || nx === S.A.n - 1 || ny === S.A.n - 1) { derez(S, b, 'fall'); return; }
+        b.laid = true; b.x = nx; b.y = ny;
+        continue;
+      }
       const L = inside(S, nx, ny) ? levelInto(S, nx, ny, b.level, b.d) : { ok: false, level: b.level };
+      if (L.fall) { layWall(S, b, b.x, b.y, b.level); b.x = nx; b.y = ny; derez(S, b, 'fall'); return; }
       const wallHit = !L.ok || blockedAt(S, nx, ny, L.level, b, true);
-      const other = !wallHit && S.bikes.find(o => o !== b && o.alive && o.level === L.level && o.x === nx && o.y === ny);
+      const other = !wallHit && S.bikes.find(o => o !== b && o.alive && !(o.air > 0) && o.x === nx && o.y === ny);
       if (other) {
         // a bike in the way: head-on is fatal for both; otherwise wait at the edge on the buffer
         if (other.d === back(b.d)) { derez(S, other, 'bike', b); derez(S, b, 'bike', other); return; }
@@ -849,8 +884,8 @@ function bikeStep(S, b, dt) {
         break;
       }
       if (wallHit) {
-        if (b.shield > 0 && L.ok && inside(S, nx, ny) && wallAlive(S, L.level, idx(S, nx, ny))) {
-          S.wallOwner[L.level][idx(S, nx, ny)] = -1;
+        if (b.shield > 0 && L.ok && inside(S, nx, ny) && wallAlive(S, surface(S, idx(S, nx, ny)), idx(S, nx, ny))) {
+          S.wallOwner[surface(S, idx(S, nx, ny))][idx(S, nx, ny)] = -1;
           if (!b.shieldTimed) b.shield = 0;
           S.events.push({ type: 'shield_break', bike: b.id, x: nx, y: ny });
         } else {
@@ -872,7 +907,7 @@ function bikeStep(S, b, dt) {
       if (!b.alive) return;
       if (b.kind !== 'player' && b.stun <= 0) think(S, b);
       if (b.queue.length) applyTurn(S, b);
-      if (nextCellBlocked(S, b, b.d)) {
+      if (!(b.air > 0) && nextCellBlocked(S, b, b.d)) {
         b.holding = true;
         S.events.push({ type: 'hold', bike: b.id });
         return;
@@ -886,19 +921,30 @@ function bikeStep(S, b, dt) {
 
 function arrive(S, b) {
   const i = idx(S, b.x, b.y);
-  // portals keep heading
-  const to = S.A.portal[i];
-  if (to >= 0 && b.level === 0 && !b.justPorted) {
-    b.x = to % S.A.n; b.y = Math.floor(to / S.A.n); b.justPorted = true;
-    S.events.push({ type: 'portal', bike: b.id, from: i, to });
+  if (b.air > 0) {
+    b.air--;
+    if (b.air > 0) return;
+    // touchdown
+    const h = S.A.h[i];
+    if (h < 0) { derez(S, b, 'fall'); return; }
+    if (S.A.solid[i] || wallAlive(S, surface(S, i), i)) { derez(S, b, 'wall'); return; }
+    b.fromLevel = b.level; b.level = h;
+    S.events.push({ type: 'land', bike: b.id, x: b.x, y: b.y, level: h });
+    return;   // a landing never fires the pad it lands on
+  }
+  const pad = S.A.jump[i];
+  if (pad >= 0 && (b.d === pad || b.d === back(pad))) {
+    const tx = b.x + DX[b.d] * JUMP, ty = b.y + DY[b.d] * JUMP;
+    b.air = JUMP; b.airFrom = b.level; b.airStart = b.dist; b.queue = [];
+    b.airTo = inside(S, tx, ty) ? S.A.h[idx(S, tx, ty)] : -1;
+    S.events.push({ type: 'jump', bike: b.id, x: b.x, y: b.y });
     return;
   }
-  b.justPorted = false;
   if (b.kind === 'player') {
     const mag = upN(S.run, 'magnet') ? 2 : 0;
     for (let k = S.cells.length - 1; k >= 0; k--) {
       const c = S.cells[k];
-      if (Math.abs(c.x - b.x) + Math.abs(c.y - b.y) <= mag && b.level === 0) {
+      if (Math.abs(c.x - b.x) + Math.abs(c.y - b.y) <= mag) {
         S.cells.splice(k, 1);
         const room = upN(S.run, 'pocket') ? 2 : 1;
         if (S.carried.length >= room) S.carried.shift();
@@ -926,7 +972,7 @@ export function step(S, dt) {
     const was = Math.ceil(S.countdown);
     S.countdown -= dt;
     if (Math.ceil(S.countdown) !== was && S.countdown > 0) S.events.push({ type: 'count', n: Math.ceil(S.countdown) });
-    if (S.countdown <= 0) S.events.push({ type: 'go' });
+    if (S.countdown <= 0) { S.events.push({ type: 'go' }); for (const b of S.bikes) b.rezT = 0; }
     return;
   }
   S.t += dt; S.clearT += dt;
@@ -980,5 +1026,6 @@ export default {
   T, POWERS, RIVALS, UPGRADES, ABILITY_WORDS, mulberry32, createRun, startSector, buildArena, player, key, brake, fire, step, takeEvents,
   wallAlive, upgradeChoices, takeUpgrade, derez, DX, DY,
   // for tooling (bots and the harness)
+  JUMP,
   _ai: { nextCellBlocked, flood, levelInto, blockedAt, think },
 };

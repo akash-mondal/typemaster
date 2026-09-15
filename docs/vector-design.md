@@ -1,5 +1,20 @@
 # VECTOR: design
 
+> **v1.50 revision: stadiums, black glass, riders.**
+> - **Arena:** 64–96 cell floating stadiums in a height field.
+>   - A three-tier plateau with ramps.
+>   - A void moat with bridges and jump pads (5-cell leaps).
+>   - Corner terraces, speed lanes and diagonal pits.
+>   - The outer rings collapse into the void after 35–60 s, pushing riders together.
+>   - Portals, fault tiles and gates are gone.
+> - **Camera:** near (48×24 cells) until 6.2 cells/s, then far (24×12 cells, half-size sprites), with a lens pull between. There's a minimap.
+> - **Look** (studied from the three films): black glass floor, faint grid lines, structure drawn only by bright edge lines, opaque walls of light that reflect in the floor, fog, a dim city and silhouetted stands.
+> - **Bikes:** glossy black with thick unbroken wheel rings and one nose-to-tail light line.
+> - **Riders:** a visible rider on every bike, in a black suit traced with light. At sector start each rider sprints in, leaps, and the bike rezzes under them.
+> - **Rivals:** two in sector 1, up to eight.
+>
+> Sections 3, 8 and 13 below describe the first version.
+
 An isometric light-cycle game driven by typing. Tile 4 of TYPEMAXX (RGB keyboard). It is endless: sectors of rising difficulty, with a boss every fifth sector. Our own designs throughout; no names, designs or music from any film.
 
 ## 1. The one rule
