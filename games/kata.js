@@ -29,7 +29,10 @@ import KataAudio from './kata-audio.js';
 
 const BASE = new URL('../assets/flow/', import.meta.url).href;
 // sound: every call is safe before the audio unlocks - it simply does nothing
+// the keyboard already clicks on every key, so nothing here sounds on a keystroke
+// itself; what a key causes (a crack, a finished word) follows a beat behind it
 const SND = (name, o) => KataAudio.sfx(name, o);
+const AFTER_KEY = 0.06;
 const MUS = KataAudio.music;
 const LW = 320, LH = 240;
 
@@ -1036,12 +1039,11 @@ function setTier() {
   const R = S.R;
   let t = 0;
   for (let i = 0; i < TIERS.length; i++) if (R.combo >= TIERS[i]) t = i;
-  if (t > R.tier) { embers(R.drawX, ninjaY() - 18, 14, COL.gold, 30); SND('tier_up', { vol: 0.5 }); }
+  if (t > R.tier) { embers(R.drawX, ninjaY() - 18, 14, COL.gold, 30); SND('tier_up', { vol: 0.5, delay: AFTER_KEY }); }
   R.tier = t;
 }
 function goodKey() {
   const R = S.R;
-  SND('key', { vol: 0.22, pitch: 1 + R.tier * 0.06, vary: 0.04 });
   R.combo++;
   R.maxCombo = Math.max(R.maxCombo, R.combo);
   R.score += 10 * (1 + R.tier);
@@ -1063,6 +1065,7 @@ function die(cause) {
   MUS.setMuffle(0.85);
   SND(cause === 'OVERRUN' || cause === 'FELL' || R.vert ? 'body_fall' : 'slash_hit', { vol: 0.8 });
   stopThreatLoop();
+  hazardQuiet(R.hazard);
   R.dead = { cause, t0: S.t };
   R.end = S.t;
   R.anim = null;
@@ -1077,7 +1080,7 @@ function loseHeart(cause, n) {
   const o = hereOpt();
   if (R.shadowT > 0) { embers(R.drawX, ninjaY() - 18, 8, COL.sky, 10); return; }
   R.hearts -= n || 1;
-  SND('hurt', { vol: 0.7, duck: 0.3 });
+  SND('hurt', { vol: 0.7 });
   SND('heart_lost', { vol: 0.4, delay: 0.08 });
   R.anim = { clip: 'ninja_stumble', t0: S.t, dur: 0.42 };
   shake(3);
@@ -1091,7 +1094,7 @@ function crack(o) {
   const R = S.R;
   if (!o || R.dead) return;
   o.cracks++;
-  SND('crack', { vol: 0.55 });
+  SND('crack', { vol: 0.5, delay: AFTER_KEY });
   o.crackXs.push(Math.round(R.drawX - o.x) + ((o.cracks * 7) % 9) - 4);
   shake(1);
   if (o.cracks >= R.D.cracks) {
@@ -1100,7 +1103,7 @@ function crack(o) {
     o.holes.push(Math.round(R.drawX - o.x));
     R.breaks++;
     R.stunT = 0.45;
-    SND('roof_break', { vol: 0.8, duck: 0.5 });
+    SND('roof_break', { vol: 0.8, delay: AFTER_KEY });
     addFx('dust', R.drawX, ninjaY() + 1);
     embers(R.drawX, ninjaY(), 10, COL.shade, 4);
     loseHeart('FELL THROUGH', 1);
@@ -1232,7 +1235,6 @@ function typeChar(ch) {
 
   if (!ok) {
     mistake();
-    SND('key_wrong', { vol: 0.5 });
     opt.errs++;
     opt.flaw[i] = 1;
     opt.errT = S.t;
@@ -1252,7 +1254,7 @@ function typeChar(ch) {
   if (p && p.state === 'pending' && R.ci === p.end) {
     p.state = clean(p) ? 'won' : 'lost';
     if (p.state === 'won') {
-      SND('power_word', { vol: 0.45 });
+      SND('power_word', { vol: 0.45, delay: AFTER_KEY });
       R.segs = Math.min(4, R.segs + 1);
       R.powers++;
       R.score += 100;
@@ -1264,7 +1266,7 @@ function typeChar(ch) {
     sn.state = clean(sn) ? 'out' : 'lost';
     sn.t = S.t;
     if (sn.state === 'out') {
-      SND('snuff', { vol: 0.6 });
+      SND('snuff', { vol: 0.6, delay: AFTER_KEY });
       R.snuffed++;
       R.score += 200;
       embers(opt.x + 8, footY(opt) - 20, 10, COL.shade, 16);
@@ -1355,10 +1357,18 @@ function resumeLine(opt) {
 }
 
 // ---------------------------------------------------------------- hazards
+// a projectile's own sound stops with it: the whirr fades, an arrow that never flew stays silent
+function hazardQuiet(hz) {
+  if (!hz || !hz.snd) return;
+  if (hz.kind === 'shuriken') hz.snd.stop(0.06); else hz.snd.cancel();
+  hz.snd = null;
+}
 function startHazard(opt, hz) {
   const R = S.R;
-  if (hz.kind === 'shuriken') { SND('throw', { vol: 0.6 }); SND('shuriken_whirr', { vol: 0.35, delay: 0.1 }); }
-  else if (hz.kind === 'arrow') { SND('arrow_draw', { vol: 0.5 }); SND('arrow_loose', { vol: 0.6, delay: hz.T * 0.55 }); }
+  const px = enemyX(opt) - R.cam;
+  // the whirr spins for exactly as long as the star flies, rising as it closes
+  if (hz.kind === 'shuriken') { SND('throw', { vol: 0.6, x: px }); hz.snd = SND('shuriken_whirr', { vol: 0.3, delay: 0.1, loop: true, fade: 0.08, pitch: 0.9, pitchTo: 1.2, pitchTime: hz.T, maxDur: (hz.T || 1) + 0.4, x: px }); }
+  else if (hz.kind === 'arrow') { SND('arrow_draw', { vol: 0.5, x: px }); hz.snd = SND('arrow_loose', { vol: 0.6, delay: hz.T * 0.55, x: px }); }
   else if (hz.kind === 'icicle') SND('icicle_crack', { vol: 0.6 });
   else if (hz.kind === 'crate') SND('crate_creak', { vol: 0.6 });
   else if (hz.kind === 'debris') SND('crack', { vol: 0.7 });
@@ -1402,6 +1412,7 @@ function resolveHazard(res) {
   hz.result = res;
   hz.doneT = S.t;
   R.hazard = null;
+  hazardQuiet(hz);
   const o = hz.opt, e = hz.owner;
   const nx = R.drawX, fy = ninjaY();
   if (e && e.state === 'attacking') e.state = 'alive';
@@ -1492,7 +1503,7 @@ function duelChar(ch) {
   if (ch.toLowerCase() === need) {
     d.typed += need;
     goodKey();
-    if (d.typed === d.word) { d.phase = 'strike'; d.t0 = S.t; R.hitstop = 0.08; SND('kill_word', { vol: 0.9, duck: 0.35 }); SND('enemy_die', { vol: 0.55, delay: 0.3 }); }
+    if (d.typed === d.word) { d.phase = 'strike'; d.t0 = S.t; R.hitstop = 0.08; SND('kill_word', { vol: 0.9, delay: AFTER_KEY }); SND('enemy_die', { vol: 0.55, delay: 0.3 }); }
   } else {
     d.typed = '';
     d.badT = S.t;
@@ -1653,7 +1664,7 @@ function cast(k) {
   R.segs -= k.cost;
   R.menu = null;
   R.slam = { k, t0: S.t };
-  SND('kata_' + k.name.toLowerCase(), { vol: 0.9, duck: 0.6 });
+  SND('kata_' + k.name.toLowerCase(), { vol: 0.9 });
   R.hitstop = 0.3;
   shake(4);
   flash('rgba(255,243,208,0.8)', 0.12);
@@ -1828,11 +1839,6 @@ function updateSound(dt) {
   const R = S.R;
   if (!KataAudio.ready) return;
   const o = curOpt();
-  // footsteps, one a stride
-  if (!R.jump && !R.vert && !R.dead && !R.grap && o) {
-    if (R.stepX == null || Math.abs(R.drawX - R.stepX) > 30) R.stepX = R.drawX;
-    if (Math.abs(R.drawX - R.stepX) >= 17) { R.stepX = R.drawX; SND(STEP_SOUND[o.type] || 'step_tile', { vol: 0.28, vary: 0.12 }); }
-  } else R.stepX = null;
   // intensity: rise at once, settle only after a few calm seconds
   let want = R.stage >= 3 || R.tier >= 1 ? 1 : 0;
   for (let si = R.si; si < Math.min(R.slots.length, R.si + 3); si++) {
@@ -1871,6 +1877,7 @@ function goResults() {
   stopThreatLoop();
   MUS.setMuffle(0);
   MUS.setTag('climb', false); MUS.setTag('danger', false);
+  hazardQuiet(R.hazard);
   MUS.play('results', { now: true, fade: 1.2 });
   if (R.newRank) KataAudio.sting('rank');
   setMode('results');
@@ -2272,7 +2279,8 @@ function updateTower(dt, wdt) {
       V.dist = (V.dist || 0) + Math.abs(R.climbY - before);
       if (Math.abs(R.climbY - before) > 0.05) V.lastMoveT = S.t;
       if (moving && S.t - (V.chipT || 0) > 0.14) { V.chipT = S.t; climbChips(T, V.side); }
-      if ((V.dist || 0) - (V.gripDist || 0) >= 14) { V.gripDist = V.dist; SND(T.wk === 'city' || T.wk === 'castle' ? 'climb_metal' : 'climb_grip', { vol: 0.35 }); }
+      const cf = Math.floor((V.dist || 0) / 7);
+      if (cf % 2 === 0 && cf !== V.gripF) { V.gripF = cf; SND(T.wk === 'city' || T.wk === 'castle' ? 'climb_metal' : 'climb_grip', { vol: 0.35 }); }
       // the threat grows louder as it closes
       if (R.threatLoop) R.threatLoop.set(clamp(1 - (V.rise - R.climbY) / 175, 0.05, 1) * 0.6, 0.2);
     }
@@ -2580,7 +2588,7 @@ function updateCross() {
   }
   if (!C.passed && R.drawX >= gx && !R.vert) {
     C.passed = true;
-    SND('gate_boom', { vol: 0.9, duck: 0.5 });
+    SND('gate_boom', { vol: 0.9 });
     if (C.t0 == null) C.t0 = S.t - CROSS_DUR * 0.6;
     const th = THEME[C.to], fy = footY(C.gate);
     for (let k = 0; k < 3; k++) embers(gx, fy - 30, 18, th.burst[k], 34);
@@ -3298,7 +3306,12 @@ function drawNinja() {
     clip = 'ninja_idle'; fi = frameOf('ninja_idle', S.t);
   } else {
     clip = 'ninja_run'; fi = frameOf('ninja_run', S.t);
+    // a footstep on each foot's contact frame (0 and 4 of the 8-frame stride)
+    const f = Math.floor(fi) % 8;
+    if (f !== R.stepF && f % 4 === 0 && o) SND(STEP_SOUND[o.type] || 'step_tile', { vol: 0.28, vary: 0.1, x });
+    R.stepF = f;
   }
+  if (clip !== 'ninja_run') R.stepF = -1;
   // on the right-hand corner he faces the wall to his left
   if (V && V.side === 'right' && V.phase !== 'summit' && V.phase !== 'dive' && !/^ninja_(climb|hang)/.test(clip)) flip = true;
   const draw = flip ? putFlip : put;
@@ -3513,11 +3526,25 @@ function drawLoading() {
 // in an ink wipe that the first opens from.
 const SHOW_INTRO = 1.5, SHOW_LOOP = 10;
 let showLast = 0, showWatch = null;
+let showLap = null, showPrev = 0;
 function showcaseAudio(t) {
   showLast = performance.now();
   if (S.active) return;                                  // in the game, the game has its own music
   // the track starts with the trailer, or waits for its loop point, so the cuts stay on the beat
-  if (MUS.current !== 'intro' && KataAudio.ready && (t < 0.5 || (t % SHOW_LOOP) < 0.12)) MUS.play('intro', { now: true, restart: true, fade: 0.05 });
+  const lap = Math.floor(t / SHOW_LOOP);
+  const fresh = showLap == null || performance.now() - showPrev > 400;
+  const wrapped = !fresh && lap !== showLap;
+  showLap = lap;
+  showPrev = performance.now();
+  if (!KataAudio.ready) return;
+  if (MUS.current !== 'intro') {
+    if (wrapped || (fresh && t % SHOW_LOOP < 0.5)) MUS.play('intro', { now: true, restart: true, fade: 0.05 });
+  } else if (wrapped) {
+    // on every loop point, check the track is still on the picture; if it drifted, start it again
+    const p = MUS.position, bar = 60 / p.bpm * 4, len = SHOW_LOOP;
+    const phase = ((p.step / 16) * bar) % len;
+    if (Math.min(phase, len - phase) > 0.3) MUS.play('intro', { now: true, restart: true, fade: 0.05 });
+  }
   if (!showWatch) {
     showWatch = setInterval(() => {
       if (performance.now() - showLast > 400) {
@@ -3956,7 +3983,8 @@ const KATA = {
     S.active = false;
     if (typeof window !== 'undefined' && window.TYPEMAXX) window.TYPEMAXX.pixel = null;
     stopThreatLoop();
-    MUS.stop(0.8);
+    if (S.R) hazardQuiet(S.R.hazard);
+    KataAudio.stopAll(0.8);
   },
 
   draw(g, W, H, seconds, now, input) {
