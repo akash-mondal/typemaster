@@ -1,0 +1,32 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>VECTOR on the real tube</title>
+<style>html,body{margin:0;height:100%;overflow:hidden;background:#000}#stage{position:fixed;inset:0}</style>
+<script>window.__errs=[];addEventListener("error",e=>window.__errs.push((e.message||"")+" @ "+(e.filename||"")+":"+(e.lineno||"")+" "+(e.error&&e.error.stack||"")));addEventListener("unhandledrejection",e=>window.__errs.push("rej "+String(e.reason&&e.reason.stack||e.reason)));</script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.1/examples/jsm/"}}</script>
+</head><body><div id="err" style="display:none"></div><div id="stage"></div><div id="hud"></div><div id="picker"></div>
+<script type="module">
+// The select screen, as close as the engine lets us get: tiles on the tube with VECTOR's showcase
+// behind tile 4. ?game plays VECTOR itself; ?nosoft skips the tube softening.
+import VECTOR from '../../games/vector.js';
+window.VECTOR = VECTOR;
+const PLAY = /[?&]game\b/.test(location.search);
+let t0 = null;
+window.TYPEMAXX = {
+  screen(ctx, w, h, seconds, now, input) {
+    if (PLAY) { if (!window.__entered) { window.__entered = true; VECTOR.enter(); } return VECTOR.draw(ctx, w, h, seconds, now, input); }
+    if (t0 == null) t0 = seconds;
+    const t = seconds - t0;
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h);
+    window.__err = null;
+    try { VECTOR.showcase.background(ctx, w, h, t, 0.45); VECTOR.showcase.logo(ctx, w / 2, h * 0.32, w * 0.48, t); } catch (e) { window.__err = String(e.stack || e); }
+    for (let k = 0; k < 5; k++) {
+      const x = w * (0.13 + k * 0.148), y = h * 0.69, tw = w * 0.12, th = h * 0.15;
+      ctx.fillStyle = k === 3 ? 'rgba(90,220,140,0.25)' : 'rgba(60,140,100,0.25)'; ctx.fillRect(x, y, tw, th);
+      ctx.strokeStyle = 'rgba(150,255,190,0.7)'; ctx.lineWidth = 3; ctx.strokeRect(x, y, tw, th);
+      if (k === 3) VECTOR.showcase.icon(ctx, x + tw * 0.1, y + th * 0.05, tw * 0.8, t, true);
+    }
+  },
+};
+</script>
+<script type="module" src="../../app.js"></script>
+</body></html>
