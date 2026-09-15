@@ -218,21 +218,21 @@ function buildFloor(S) {
   // a faint centre bloom under the grid
   const [mx, my] = P(n / 2 - 0.5, n / 2 - 0.5);
   const rg = g.createRadialGradient(mx, my, 10, mx, my, n * HX);
-  rg.addColorStop(0, 'rgba(30,90,140,0.22)'); rg.addColorStop(1, 'rgba(30,90,140,0)');
+  rg.addColorStop(0, 'rgba(40,120,190,0.42)'); rg.addColorStop(1, 'rgba(30,90,140,0)');
   g.fillStyle = rg; g.fill();
   // strips
   for (let y = 1; y < n - 1; y++) for (let x = 1; x < n - 1; x++) {
     const i = y * n + x, mod = A.mod[i];
     if (mod === 1) continue;
     const [cx, cy] = P(x, y);
-    g.fillStyle = mod > 1 ? 'rgba(60,255,200,0.12)' : 'rgba(255,90,60,0.12)';
+    g.fillStyle = mod > 1 ? 'rgba(60,255,200,0.26)' : 'rgba(255,90,60,0.24)';
     g.beginPath(); g.moveTo(cx, cy - HY); g.lineTo(cx + HX, cy); g.lineTo(cx, cy + HY); g.lineTo(cx - HX, cy); g.closePath(); g.fill();
   }
   // grid lines on cell edges
   for (let k = 0; k <= n; k++) {
     const major = k % 4 === 0 || k === 0 || k === n;
-    g.strokeStyle = major ? 'rgba(50,170,230,0.42)' : 'rgba(40,130,200,0.16)';
-    g.lineWidth = 1;
+    g.strokeStyle = major ? 'rgba(90,210,255,0.85)' : 'rgba(60,160,230,0.38)';
+    g.lineWidth = major ? 2 : 1;
     let a = P(k - 0.5, -0.5), b = P(k - 0.5, n - 0.5);
     g.beginPath(); g.moveTo(Math.round(a[0]) + 0.5, Math.round(a[1]) + 0.5); g.lineTo(Math.round(b[0]) + 0.5, Math.round(b[1]) + 0.5); g.stroke();
     a = P(-0.5, k - 0.5); b = P(n - 0.5, k - 0.5);
@@ -241,8 +241,9 @@ function buildFloor(S) {
   // grid crossings get a brighter dot
   for (let y = 0; y <= n; y += 2) for (let x = 0; x <= n; x += 2) {
     const [px, py] = P(x - 0.5, y - 0.5);
-    g.fillStyle = (x % 4 === 0 && y % 4 === 0) ? 'rgba(140,230,255,0.55)' : 'rgba(90,180,230,0.25)';
-    g.fillRect(Math.round(px), Math.round(py), 1, 1);
+    const big = x % 4 === 0 && y % 4 === 0;
+    g.fillStyle = big ? 'rgba(210,250,255,0.95)' : 'rgba(140,220,255,0.55)';
+    g.fillRect(Math.round(px) - (big ? 1 : 0), Math.round(py) - (big ? 1 : 0), big ? 3 : 2, big ? 3 : 2);
   }
   G.floor = { c, ox: (n - 1) * HX - ox + 0, oy: -oy, P };
   G.floorOrigin = P(0, 0);
@@ -264,11 +265,12 @@ function drawRim(S, near) {
   for (const [a, b, side] of edges) {
     if ((side === 'near') !== near) continue;
     const [x0, y0] = iso(a[0], a[1], 0), [x1, y1] = iso(b[0], b[1], 0);
-    ctx.strokeStyle = 'rgba(120,200,255,0.55)'; ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(170,230,255,0.95)'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(x0, y0 - 10); ctx.lineTo(x1, y1 - 10); ctx.stroke();
-    ctx.strokeStyle = 'rgba(120,200,255,0.18)';
+    ctx.strokeStyle = 'rgba(120,200,255,0.5)';
     ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
-    if (glowCtx) { glowCtx.strokeStyle = 'rgba(80,170,255,0.6)'; glowCtx.beginPath(); glowCtx.moveTo(x0 / 2, (y0 - 10) / 2); glowCtx.lineTo(x1 / 2, (y1 - 10) / 2); glowCtx.stroke(); }
+    ctx.lineWidth = 1;
+    if (glowCtx) { glowCtx.strokeStyle = 'rgba(80,170,255,0.9)'; glowCtx.lineWidth = 2; glowCtx.beginPath(); glowCtx.moveTo(x0 / 2, (y0 - 10) / 2); glowCtx.lineTo(x1 / 2, (y1 - 10) / 2); glowCtx.stroke(); glowCtx.lineWidth = 1; }
   }
   if (S.exitOpen && !near) {
     const ex = S.A.exit % n, ey = Math.floor(S.A.exit / n);
@@ -628,8 +630,6 @@ function drawScene(S, dt, opts) {
   drawBoss(S);
   drawParticles(dt);
   applyBloom(opts.bloom == null ? 1 : opts.bloom);
-  // scanlines and a soft vignette sell the screen
-  ctx.fillStyle = 'rgba(0,0,0,0.10)'; for (let y = 0; y < LH; y += 2) ctx.fillRect(0, y, LW, 1);
 }
 
 // ---------------------------------------------------------------- HUD and typing
@@ -678,39 +678,29 @@ function chevron(x, y, d) {
   ctx.beginPath(); ctx.moveTo(x - ux * 4 - uy * 3, y - uy * 4 + ux * 3); ctx.lineTo(x + ux * 3, y + uy * 3); ctx.lineTo(x - ux * 4 + uy * 3, y - uy * 4 - ux * 3); ctx.stroke();
 }
 function drawHud(S) {
-  const run = S.run;
-  rect(0, 0, LW, 18, COL.ink, 0.7);
-  rect(0, 18, LW, 1, COL.player, 0.35);
-  text('SECTOR ' + String(S.sector).padStart(2, '0') + (S.A.boss ? '  OVERSEER' : ''), 6, 3, S.A.boss ? COL.boss : COL.text);
-  textC(String(run.score).padStart(7, '0'), LW / 2, 3, COL.white, 1);
-  // cores
+  const run = S.run, P = Sim.player(S);
+  rect(0, 0, LW, 28, COL.ink, 0.8);
+  rect(0, 28, LW, 2, COL.player, 0.6);
+  text('SECTOR ' + String(S.sector).padStart(2, '0'), 6, 1, S.A.boss ? COL.boss : COL.white, 2);
+  textC(String(run.score).padStart(7, '0'), LW / 2, 1, COL.white, 2);
   for (let i = 0; i < Math.max(run.cores, 3); i++) {
-    const x = LW - 12 - i * 13, on = i < run.cores;
-    ctx.fillStyle = css(on ? COL.player : COL.dim, on ? 1 : 0.4);
-    ctx.beginPath(); for (let k = 0; k < 6; k++) { const a = TAU * k / 6 + Math.PI / 6; ctx.lineTo(x + Math.cos(a) * 4.5, 9 + Math.sin(a) * 4.5); } ctx.fill();
+    const x = LW - 12 - i * 18, on = i < run.cores;
+    ctx.fillStyle = css(on ? COL.player : COL.dim, on ? 1 : 0.45);
+    ctx.beginPath(); for (let k = 0; k < 6; k++) { const a = TAU * k / 6 + Math.PI / 6; ctx.lineTo(x + Math.cos(a) * 7, 14 + Math.sin(a) * 7); } ctx.fill();
   }
-  if (S.streak > 1) textR('STREAK x' + S.streak, LW - 60, 3, S.streak >= 10 ? COL.gold : COL.text);
-  // bottom: energy, brake, carried cell, speed
-  const P = Sim.player(S);
-  rect(0, LH - 20, LW, 20, COL.ink, 0.7);
-  rect(0, LH - 21, LW, 1, COL.player, 0.35);
-  text('ENERGY', 6, LH - 16, COL.dim);
-  const ex = 50, ew = 110;
+  if (S.streak > 1) textR('x' + S.streak, LW - 70, 1, S.streak >= 10 ? COL.gold : COL.white, 2);
+  rect(0, LH - 30, LW, 30, COL.ink, 0.8);
+  rect(0, LH - 32, LW, 2, COL.player, 0.6);
+  // energy: twenty bold cells
   for (let i = 0; i < 20; i++) {
     const on = S.energy >= (i + 1) * 5;
-    rect(ex + i * (ew / 20), LH - 14, ew / 20 - 1, 7, on ? (S.energy >= 100 ? COL.gold : COL.player) : [30, 40, 60]);
+    rect(8 + i * 8, LH - 22, 6, 14, on ? (S.energy >= 100 ? COL.gold : COL.player) : [40, 55, 80]);
   }
-  text('BRAKE', 172, LH - 16, COL.dim);
-  rect(206, LH - 12, 40, 3, [30, 40, 60]); rect(206, LH - 12, 40 * clamp(S.brakeLeft / Sim.T.brakeReserve, 0, 1), 3, COL.text);
-  if (S.carried.length) {
-    const c = S.carried[0];
-    text('ENTER', 262, LH - 16, COL.dim);
-    text(c.toUpperCase(), 296, LH - 16, COL[c]);
-    if (S.carried[1]) text('+ ' + S.carried[1].toUpperCase(), 340, LH - 16, COL.dim);
-  }
-  textR(P.speed.toFixed(1) + ' c/s', LW - 6, LH - 16, P.speed > 7 ? COL.gold : COL.text);
-  if (S.playerSealed && P.alive) glowText('SEALED IN', LW / 2, 30, COL.red, 1, 0.6 + 0.4 * Math.sin(G.t * 10));
-  if (P.holding) glowText('BRAKE BUFFER', LW / 2, 44, COL.gold, 1, 0.8);
+  rect(176, LH - 22, 50, 14, [40, 55, 80]); rect(176, LH - 22, 50 * clamp(S.brakeLeft / Sim.T.brakeReserve, 0, 1), 14, COL.text);
+  if (S.carried.length) text(S.carried[0].toUpperCase(), 236, LH - 28, COL[S.carried[0]], 2);
+  textR(P.speed.toFixed(1), LW - 8, LH - 28, P.speed > 7 ? COL.gold : COL.white, 2);
+  if (S.playerSealed && P.alive) glowText('SEALED IN', LW / 2, 40, COL.red, 2, 0.6 + 0.4 * Math.sin(G.t * 10));
+  else if (P.holding) glowText('BUFFER', LW / 2, 40, COL.gold, 2, 0.9);
 }
 function drawToasts() {
   for (const t of G.toasts) {
@@ -718,7 +708,7 @@ function drawToasts() {
     if (u < 0 || u > 1) continue;
     const a = clamp(u / 0.12, 0, 1) * clamp((1 - u) / 0.25, 0, 1);
     glowText(t.big, LW / 2, t.y || 110, t.col || COL.white, t.scale || 3, a);
-    if (t.sub) textC(t.sub, LW / 2, (t.y || 110) + 14 * (t.scale || 3) + 2, COL.text, 1, a);
+    if (t.sub) textC(t.sub, LW / 2, (t.y || 110) + 14 * (t.scale || 3) + 4, COL.white, 2, a);
   }
   G.toasts = G.toasts.filter(t => G.t - t.t0 < t.dur);
 }
@@ -928,7 +918,7 @@ function drawPlay(dt) {
   drawTyping(S);
   drawHud(S);
   drawToasts();
-  if (S.countdown > 0 && S.countdown < 3.2) textC('type a steer key to face your line', LW / 2, LH - 44, COL.dim, 1, 0.9);
+  if (S.countdown > 0 && S.countdown < 3.2) textC('steer keys pick your line', LW / 2, LH - 58, COL.white, 2, 0.9);
   if (G.flash > 0) { rect(0, 0, LW, LH, COL.white, G.flash * 0.6); G.flash = Math.max(0, G.flash - dt * 2); }
 }
 function drawCompile(dt) {
@@ -938,7 +928,7 @@ function drawCompile(dt) {
   drawScene(S, dt, { bloom: 0.6 });
   rect(0, 0, LW, LH, COL.ink, 0.6);
   glowText('COMPILE', LW / 2, 50, COL.player, 3);
-  textC('type an upgrade to install it', LW / 2, 96, COL.dim);
+  textC('type one to install it', LW / 2, 96, COL.white, 2);
   const ch = G.choices;
   if (ch) ch.forEach((c, i) => {
     const y = 130 + i * 58, w = 300, x = LW / 2 - w / 2;
@@ -946,7 +936,7 @@ function drawCompile(dt) {
     panel(x, y, w, 46, 1, match ? COL.gold : COL.player);
     let pen = x + 14;
     for (let k = 0; k < c.name.length; k++) pen = text(c.name[k].toUpperCase(), pen, y + 8, match && k < G.typedChoice.length ? COL.gold : COL.white, 2);
-    text(c.text, x + 14, y + 32, COL.text);
+    text(c.text, x + 14, y + 32, COL.white);
     const lvl = G.run.up[c.key] || 0;
     textR(lvl ? 'LV ' + (lvl + 1) : 'NEW', x + w - 10, y + 10, COL.dim);
   });
@@ -961,34 +951,33 @@ function drawTitle(dt) {
   drawScene(D, dt);
   rect(0, 0, LW, LH, COL.ink, 0.35);
   drawLogoPixel(LW / 2, 86, 1);
-  textC('a light-cycle typing game', LW / 2, 118, COL.text);
+  textC('light-cycle typing', LW / 2, 118, COL.white, 2);
   MENU.forEach((m, i) => {
     const on = i === G.sel;
-    if (on) { panel(LW / 2 - 70, 158 + i * 26, 140, 20, 1, COL.player); }
-    textC(m, LW / 2, 162 + i * 26, on ? COL.white : COL.dim, 1);
+    if (on) { panel(LW / 2 - 90, 156 + i * 34, 180, 30, 1, COL.player); }
+    textC(m, LW / 2, 158 + i * 34, on ? COL.white : COL.text, 2);
   });
-  if (G.best) textC('BEST ' + G.best, LW / 2, 250, COL.gold);
-  textC('words make you fast. keys steer. typos cut your wall.', LW / 2, LH - 28, COL.dim);
+  if (G.best) textC('BEST ' + G.best, LW / 2, 262, COL.gold, 2);
+  textC('type to ride', LW / 2, LH - 34, COL.text, 2);
 }
 function drawHowto(dt) {
   demoStep(dt);
   updateCamera(G.demo, dt, 2);
   drawScene(G.demo, dt, { bloom: 0.5 });
   rect(0, 0, LW, LH, COL.ink, 0.75);
-  glowText('HOW TO RIDE', LW / 2, 22, COL.player, 2);
+  glowText('HOW TO RIDE', LW / 2, 12, COL.player, 3);
   const rows = [
-    ['STEER', 'press the key shown to your left or right to turn there'],
-    ['WORD', 'type the word above your bike: each word is a burst of speed'],
-    ['WALL', 'every word grows your wall; a typo cuts four cells off it'],
-    ['GRIND', 'ride beside a wall to charge speed and energy'],
-    ['BUFFER', 'blocked ahead? you hold for a moment: steer away'],
-    ['SEAL', 'close a rival into a small space and it is finished'],
-    ['ENERGY', 'when full, a gold word fires a pulse that clears walls'],
-    ['CELLS', 'pick up power cells; ENTER fires them. BACKSPACE brakes'],
-    ['OVERSEER', 'every fifth sector: circle its anchor pylons with your wall'],
+    ['STEER', 'press the key beside you'],
+    ['WORD', 'type the word to speed up'],
+    ['TYPO', 'cuts four cells of wall'],
+    ['GRIND', 'ride by walls to charge'],
+    ['SEAL', 'box a rival in to win'],
+    ['ENTER', 'fire a power cell'],
+    ['BKSP', 'brake'],
+    ['BOSS', 'circle its pylons'],
   ];
-  rows.forEach(([a, b], i) => { textR(a, 118, 58 + i * 28, COL.player); text(b, 128, 58 + i * 28, COL.text); });
-  textC('enter to go back', LW / 2, LH - 18, COL.dim);
+  rows.forEach(([a, b], i) => { textR(a, 128, 54 + i * 34, COL.player, 2); text(b, 140, 54 + i * 34, COL.white, 2); });
+  textC('enter to go back', LW / 2, LH - 30, COL.text, 2);
 }
 function drawPause(dt) {
   const S = G.S;
@@ -996,7 +985,7 @@ function drawPause(dt) {
   drawHud(S);
   rect(0, 0, LW, LH, COL.ink, 0.6);
   glowText('PAUSED', LW / 2, 120, COL.player, 3);
-  ['RESUME', 'END RUN'].forEach((m, i) => textC(m, LW / 2, 180 + i * 22, i === G.sel ? COL.white : COL.dim));
+  ['RESUME', 'END RUN'].forEach((m, i) => textC(m, LW / 2, 176 + i * 34, i === G.sel ? COL.white : COL.text, 2));
 }
 function drawResults(dt) {
   const S = G.S, run = G.run;
@@ -1007,9 +996,9 @@ function drawResults(dt) {
   const st = run.stats;
   const acc = st.letters ? Math.round(100 * (st.letters - st.typos) / st.letters) : 100;
   const rows = [['SCORE', run.score], ['SECTOR', run.sector], ['SHATTERED', st.derez], ['SEALS', st.seals], ['ANCHORS', st.bosses ? st.bosses + ' OVERSEERS' : '0'], ['WORDS', st.words], ['BEST STREAK', st.best], ['ACCURACY', acc + '%']];
-  rows.forEach(([a, b], i) => { textR(a, LW / 2 - 8, 100 + i * 20, COL.dim); text(String(b), LW / 2 + 8, 100 + i * 20, COL.white); });
-  ['NEW RUN', 'MENU'].forEach((m, i) => { const on = i === G.sel; if (on) panel(LW / 2 - 60, 276 + i * 24, 120, 20, 1); textC(m, LW / 2, 280 + i * 24, on ? COL.white : COL.dim); });
-  if (run.score >= G.best && run.score > 0) textC('best this visit', LW / 2, 324, COL.gold);
+  rows.forEach(([a, b], i) => { textR(a, LW / 2 - 10, 88 + i * 22, COL.text, 2); text(String(b), LW / 2 + 10, 88 + i * 22, COL.white, 2); });
+  ['NEW RUN', 'MENU'].forEach((m, i) => { const on = i === G.sel; if (on) panel(LW / 2 - 70, 272 + i * 34, 140, 30, 1); textC(m, LW / 2, 274 + i * 34, on ? COL.white : COL.text, 2); });
+  
 }
 function drawLoading() {
   rect(0, 0, LW, LH, [3, 4, 11]);

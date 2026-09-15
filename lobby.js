@@ -14,7 +14,8 @@
  *     .setArea('launch' | 'menu') where the player is. Signing in and out only
  *                                 happens in 'launch': in 'menu' (game select) the
  *                                 login logo and board stay away and the badge
- *                                 has no SIGN OUT. Games still use suspend().
+ *                                 has no SIGN OUT and no GLOBAL LEADERBOARDS tab.
+ *                                 Games still use suspend().
  *     .setBadgeSide('right' | 'left')
  *     .view('home' | 'leaderboard')   turns the camera to the leaderboard board
  *     .setLeaderboardPainter(fn)  fn(ctx, W, H, seconds) paints that board
@@ -450,7 +451,8 @@ export function createLobby({ THREE, scene, camera, renderer, controls, ground }
     // home: the leaderboards tab on the right. leaderboard: a back arrow on the
     // left, pointing the way the camera turns to get back to the computer.
     const onBoard = view.name === 'leaderboard';
-    tab.classList.toggle('on', !!user && !suspended && !onBoard);
+    // the leaderboards live on the launch screen only: never over game select or a game
+    tab.classList.toggle('on', !!user && !suspended && !onBoard && area === 'launch');
     backBtn.classList.toggle('on', !suspended && onBoard);
     tabText.textContent = 'GLOBAL LEADERBOARDS';
   }
@@ -723,7 +725,7 @@ export function createLobby({ THREE, scene, camera, renderer, controls, ground }
       a = a === 'menu' ? 'menu' : 'launch';
       if (a === area) return;
       area = a;
-      if (area !== 'launch') { closeBoard(); badge.classList.remove('open'); }
+      if (area !== 'launch') { closeBoard(); badge.classList.remove('open'); if (view.name === 'leaderboard') setView('home'); }
       else if (logo.shown && !suspended) logoRig.visible = true;
       renderTabs();
     },
