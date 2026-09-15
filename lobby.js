@@ -8,8 +8,14 @@
  *     .showLogin(bool)            the floating 3D Commonsmade logo with LOGIN above
  *     .setBoard({ title, body, primary, secondary })   copy for the login board
  *     .openBoard() / .closeBoard()
- *     .setUser(user | null)       { name, handle, avatar } - top-right badge, and
- *                                 the GLOBAL LEADERBOARDS tab on the right edge
+ *     .setUser(user | null)       { name, handle, avatar } - a round avatar badge that
+ *                                 opens into name and handle on hover, and the
+ *                                 GLOBAL LEADERBOARDS tab on the right edge
+ *     .setArea('launch' | 'menu') where the player is. Signing in and out only
+ *                                 happens in 'launch': in 'menu' (game select) the
+ *                                 login logo and board stay away and the badge
+ *                                 has no SIGN OUT. Games still use suspend().
+ *     .setBadgeSide('right' | 'left')
  *     .view('home' | 'leaderboard')   turns the camera to the leaderboard board
  *     .setLeaderboardPainter(fn)  fn(ctx, W, H, seconds) paints that board
  *     .on(event, fn)              'login' | 'dismiss' | 'signout' | 'view'
@@ -27,7 +33,7 @@ const LOGO_ASPECT = 0.62285;
 
 import { createChalkboard } from './chalkboard.js';
 
-const VERSION = '1.30.2';
+const VERSION = '1.42.0';
 const CREAM = 0xF3EEDD, CREAM_SIDE = 0xC9BFA4;
 const easeOutBack = t => 1 + 2.70158 * Math.pow(t - 1, 3) + 1.70158 * Math.pow(t - 1, 2);
 const easeInOut = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
@@ -346,23 +352,37 @@ export function createLobby({ THREE, scene, camera, renderer, controls, ground }
   const css = document.createElement('style');
   css.textContent = `
   .tmx-lobby{position:fixed;inset:0;pointer-events:none;z-index:30;font-family:${FONT}}
-  .tmx-badge{position:absolute;top:18px;right:20px;display:flex;align-items:center;gap:10px;
-    padding:6px 14px 6px 6px;border-radius:999px;background:rgba(12,15,22,.72);
+  .tmx-badge{position:absolute;top:18px;right:20px;display:flex;align-items:center;gap:0;
+    padding:5px;border-radius:999px;background:rgba(12,15,22,.72);
     border:1px solid rgba(243,238,221,.16);color:#F3EEDD;backdrop-filter:blur(14px);
     -webkit-backdrop-filter:blur(14px);box-shadow:0 8px 28px rgba(0,0,0,.28);
-    pointer-events:auto;cursor:default;opacity:0;transform:translateY(-8px);
-    transition:opacity .35s ease,transform .35s ease}
-  .tmx-badge.on{opacity:1;transform:none}
-  .tmx-av{width:34px;height:34px;border-radius:50%;background:#F3EEDD;color:#0A0D14;
+    pointer-events:none;cursor:default;opacity:0;transform:translateY(-8px);outline:none;
+    transition:opacity .35s ease,transform .35s ease,gap .32s cubic-bezier(.2,.8,.2,1),padding .32s cubic-bezier(.2,.8,.2,1),background .2s}
+  .tmx-badge.left{right:auto;left:20px}
+  .tmx-badge.right{flex-direction:row-reverse}
+  .tmx-badge.on{opacity:1;transform:none;pointer-events:auto}
+  /* closed it is just the avatar; hover, focus or a tap opens it into the full card */
+  .tmx-badge.on:hover,.tmx-badge.on:focus-within,.tmx-badge.on.open{gap:10px;background:rgba(12,15,22,.84)}
+  .tmx-badge.left.on:hover,.tmx-badge.left.on:focus-within,.tmx-badge.left.on.open{padding:5px 14px 5px 5px}
+  .tmx-badge.right.on:hover,.tmx-badge.right.on:focus-within,.tmx-badge.right.on.open{padding:5px 5px 5px 14px}
+  .tmx-badge:focus-visible{box-shadow:0 0 0 2px rgba(243,238,221,.6),0 8px 28px rgba(0,0,0,.28)}
+  .tmx-fold{display:flex;align-items:center;gap:6px;max-width:0;opacity:0;overflow:hidden;
+    transition:max-width .32s cubic-bezier(.2,.8,.2,1),opacity .2s ease}
+  .tmx-badge.right .tmx-fold{flex-direction:row-reverse}
+  .tmx-badge.on:hover .tmx-fold,.tmx-badge.on:focus-within .tmx-fold,.tmx-badge.on.open .tmx-fold{max-width:340px;opacity:1;transition:max-width .32s cubic-bezier(.2,.8,.2,1),opacity .25s ease .06s}
+  .tmx-badge.right .tmx-who{align-items:flex-end}
+  .tmx-badge.menu .tmx-out{display:none}
+  .tmx-av{width:36px;height:36px;border-radius:50%;background:#F3EEDD;color:#0A0D14;
     display:grid;place-items:center;font-weight:800;font-size:14px;overflow:hidden;flex:none}
   .tmx-av img{width:100%;height:100%;object-fit:cover}
   .tmx-who{display:flex;flex-direction:column;line-height:1.15;min-width:0}
   .tmx-name{font-size:13px;font-weight:700;letter-spacing:.01em;white-space:nowrap;
     max-width:180px;overflow:hidden;text-overflow:ellipsis}
   .tmx-handle{font-size:11px;color:rgba(243,238,221,.55);white-space:nowrap}
-  .tmx-out{margin-left:6px;font-size:10px;font-weight:700;letter-spacing:.14em;
-    color:rgba(243,238,221,.5);background:none;border:0;cursor:pointer;padding:6px 0 6px 10px;
+  .tmx-out{font-size:10px;font-weight:700;letter-spacing:.14em;white-space:nowrap;
+    color:rgba(243,238,221,.5);background:none;border:0;cursor:pointer;padding:6px 10px;
     border-left:1px solid rgba(243,238,221,.14);font-family:inherit}
+  .tmx-badge.right .tmx-out{border-left:0;border-right:1px solid rgba(243,238,221,.14)}
   .tmx-out:hover{color:#F3EEDD}
   .tmx-tab{position:absolute;right:0;top:50%;transform:translate(8px,-50%);
     display:flex;flex-direction:column;align-items:center;gap:12px;padding:18px 11px 18px 13px;
@@ -390,10 +410,12 @@ export function createLobby({ THREE, scene, camera, renderer, controls, ground }
   const root = document.createElement('div');
   root.className = 'tmx-lobby';
   root.innerHTML = `
-    <div class="tmx-badge" aria-live="polite">
+    <div class="tmx-badge right" tabindex="0" aria-live="polite">
       <div class="tmx-av"></div>
-      <div class="tmx-who"><div class="tmx-name"></div><div class="tmx-handle"></div></div>
-      <button class="tmx-out" type="button">SIGN OUT</button>
+      <div class="tmx-fold">
+        <div class="tmx-who"><div class="tmx-name"></div><div class="tmx-handle"></div></div>
+        <button class="tmx-out" type="button">SIGN OUT</button>
+      </div>
     </div>
     <button class="tmx-back" type="button" aria-label="Back to the games">
       <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></i>
@@ -412,14 +434,19 @@ export function createLobby({ THREE, scene, camera, renderer, controls, ground }
   const tabText = tab.querySelector('span');
   const backBtn = root.querySelector('.tmx-back');
   backBtn.addEventListener('click', () => setView('home'));
-  root.querySelector('.tmx-out').addEventListener('click', () => emit('signout'));
+  root.querySelector('.tmx-out').addEventListener('click', () => { if (area === 'launch') emit('signout'); });
+  // touch has no hover: a tap opens the card, a tap anywhere else closes it
+  badge.addEventListener('click', e => { if (!e.target.closest('.tmx-out')) badge.classList.toggle('open'); });
+  addEventListener('pointerdown', e => { if (!badge.contains(e.target)) badge.classList.remove('open'); }, true);
   const toggleView = () => setView(view.name === 'leaderboard' ? 'home' : 'leaderboard');
   tab.addEventListener('click', toggleView);
   tab.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleView(); } });
 
-  let user = null, suspended = false;
+  let user = null, suspended = false, area = 'launch';
   function renderTabs() {
     badge.classList.toggle('on', !!user && !suspended);
+    badge.classList.toggle('menu', area !== 'launch');
+    badge.setAttribute('aria-label', user ? 'Signed in as ' + (user.name || user.handle || 'player') : '');
     // home: the leaderboards tab on the right. leaderboard: a back arrow on the
     // left, pointing the way the camera turns to get back to the computer.
     const onBoard = view.name === 'leaderboard';
@@ -529,7 +556,7 @@ export function createLobby({ THREE, scene, camera, renderer, controls, ground }
     if (!suspended && ((board.open && board.want === 1) || view.name === 'leaderboard') && !inLobbyDom(e)) swallow(e);
   }, true);
 
-  function openBoard() { board.open = true; board.want = 1; board.dirty = true; boardRig.visible = true; }
+  function openBoard() { if (area !== 'launch' || suspended) return; board.open = true; board.want = 1; board.dirty = true; boardRig.visible = true; }
   function closeBoard() { board.want = 0; }
 
   // Where the mark stands. Measured from the keyboard's bounds once they exist,
@@ -577,8 +604,9 @@ export function createLobby({ THREE, scene, camera, renderer, controls, ground }
     const dist = camera.position.distanceTo(controls.target) || 10;
 
     // --- logo: a still object standing on the floor to the right of the keyboard
-    logo.appear += ((logo.shown && !suspended && view.name === 'home' ? 1 : 0) - logo.appear) * Math.min(1, dt * 6);
-    if (logo.appear < 0.01 && (!logo.shown || suspended)) logoRig.visible = false;
+    const logoWanted = logo.shown && !suspended && area === 'launch' && view.name === 'home';
+    logo.appear += ((logoWanted ? 1 : 0) - logo.appear) * Math.min(1, dt * 6);
+    if (logo.appear < 0.01 && !logoWanted) logoRig.visible = false;
     if (logoRig.visible) {
       placeLogo();
       logo.hover += (logo.want - logo.hover) * Math.min(1, dt * 10);
@@ -653,7 +681,7 @@ export function createLobby({ THREE, scene, camera, renderer, controls, ground }
       on = !!on;
       if (on === logo.shown) return;
       logo.shown = on;
-      if (on && !suspended) logoRig.visible = true;
+      if (on && !suspended && area === 'launch') logoRig.visible = true;
       if (!on) closeBoard();
     },
     setBoard(copy) { Object.assign(board.copy, copy || {}); board.dirty = true; },
@@ -691,6 +719,20 @@ export function createLobby({ THREE, scene, camera, renderer, controls, ground }
       renderTabs();
     },
     get suspended() { return suspended; },
+    setArea(a) {
+      a = a === 'menu' ? 'menu' : 'launch';
+      if (a === area) return;
+      area = a;
+      if (area !== 'launch') { closeBoard(); badge.classList.remove('open'); }
+      else if (logo.shown && !suspended) logoRig.visible = true;
+      renderTabs();
+    },
+    get area() { return area; },
+    setBadgeSide(side) {
+      const left = side === 'left';
+      badge.classList.toggle('left', left);
+      badge.classList.toggle('right', !left);
+    },
     busy() { return !suspended && (board.open || view.name === 'leaderboard' || view.owns); },
   };
 
