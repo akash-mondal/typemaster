@@ -393,6 +393,9 @@ export function createCrtTerminal({ width = 1024, height = 768,
     dispose(){
       gl.deleteBuffer(buffer); gl.deleteTexture(texture);
       gl.deleteProgram(program); gl.deleteShader(vertex); gl.deleteShader(fragment);
+      const ext = gl.getExtension('WEBGL_lose_context');
+      if(ext) ext.loseContext();
+      canvas.width = canvas.height = 1;
     },
   };
 }

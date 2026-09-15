@@ -340,27 +340,57 @@ function gong(dur) {
 }
 
 // ---------------------------------------------------------------- the bank
+// Rendering every instrument and effect is a few hundred milliseconds of maths.
+// None of it needs the audio context, so it starts as soon as the module loads,
+// a few milliseconds at a time in idle moments, and is finished long before
+// anyone presses a key. Unlocking then only wraps the finished samples in
+// buffers, which is instant.
 const BANK = { inst: {}, sfx: {} };
-let bankBuilt = false;
+const RAW = { inst: {}, sfx: {} };
+let bankBuilt = false, bankDone = false, rawDone = false;
+const rawTodo = [];
+let rawTimer = null;
+function idle(fn) {
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(fn, { timeout: 120 });
+  else setTimeout(() => fn({ timeRemaining: () => 8 }), 16);
+}
+function prerender() {
+  if (rawTimer || rawDone) return;
+  seed = 1234567;
+  for (const [k, v] of Object.entries(INSTR)) rawTodo.push(['inst', k, () => v.render()]);
+  for (const [k, f] of Object.entries(SFX_DEF)) rawTodo.push(['sfx', k, f]);
+  rawTimer = true;
+  const step = (dl) => {
+    // at most ~8 ms per slice; after unlock, keep slices short but do not wait for idle
+    const until = performance.now() + Math.min(8, dl && dl.timeRemaining ? Math.max(3, dl.timeRemaining()) : 8);
+    while (rawTodo.length && performance.now() < until) {
+      const [kind, k, f] = rawTodo.shift();
+      try { RAW[kind][k] = f(); } catch (e) { console.warn('kata-audio', k, e); }
+      if (bankBuilt) wrap(kind, k);
+    }
+    if (rawTodo.length) { if (bankBuilt) setTimeout(step, 0); else idle(step); }
+    else { rawDone = true; if (bankBuilt) bankDone = true; }
+  };
+  idle(step);
+}
+function wrap(kind, k) {
+  const d = RAW[kind][k];
+  if (!d || !AC) return;
+  if (kind === 'inst') { const v = INSTR[k]; BANK.inst[k] = { buf: buffer(d), base: v.base, drum: !!v.drum }; }
+  else BANK.sfx[k] = buffer(d);
+}
 function buildBank() {
   if (bankBuilt || !AC) return;
   bankBuilt = true;
-  seed = 1234567;
-  // instruments now, so music can start at once; effects a few at a time in idle
-  // moments, so the first keypress never stalls a frame
-  for (const [k, v] of Object.entries(INSTR)) BANK.inst[k] = { buf: buffer(v.render()), base: v.base, drum: !!v.drum };
-  const todo = Object.entries(SFX_DEF);
-  const next = () => {
-    const until = performance.now() + 8;
-    while (todo.length && performance.now() < until) {
-      const [k, f] = todo.shift();
-      try { BANK.sfx[k] = buffer(f()); } catch (e) { console.warn('sfx', k, e); }
-    }
-    if (todo.length) setTimeout(next, 0); else bankDone = true;
-  };
-  next();
+  if (!rawTimer) prerender();
+  for (const k of Object.keys(RAW.inst)) wrap('inst', k);
+  for (const k of Object.keys(RAW.sfx)) wrap('sfx', k);
+  if (rawDone) bankDone = true;
+  else if (rawTodo.length && rawTodo[0][0] === 'inst') {
+    // a key came before the instruments finished: finish them now so music can start
+    while (rawTodo.length && rawTodo[0][0] === 'inst') { const [kind, k, f] = rawTodo.shift(); RAW[kind][k] = f(); wrap(kind, k); }
+  }
 }
-let bankDone = false;
 
 function playSample(name, when, midiNote, dur, vol, pan, dest) {
   const I = BANK.inst[name];
@@ -1011,8 +1041,12 @@ function stopAll(fade) {
 
 function ramp(param, v) { param.cancelScheduledValues(AC.currentTime); param.setTargetAtTime(v, AC.currentTime, 0.06); }
 
+// start the heavy lifting as soon as there is a page to do it in
+if (typeof window !== 'undefined') prerender();
+
 const KataAudio = {
-  get ready() { return unlocked && bankBuilt; },
+  get ready() { return unlocked && bankBuilt && Object.keys(BANK.inst).length === Object.keys(INSTR).length; },
+  get prepared() { return rawDone; },
   get loaded() { return bankDone; },
   unlock,
   onReady(fn) { if (unlocked) fn(); else listeners.push(fn); },

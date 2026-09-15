@@ -56,6 +56,51 @@ const CFG = {
   master: 0.55,
 };
 
+// ══════════════════════════════════════════════════════════ GPU contexts
+// A browser allows about 16 live WebGL contexts per page. Past that it kills the
+// OLDEST, which is this engine's own scene: the whole picture goes white. A
+// context is only freed when it is lost or garbage collected, so dropping a
+// canvas is not enough. Every context made on the page is counted here, the
+// engine releases its own explicitly, and when the count climbs the console
+// says who made them.
+//   TYPEMAXX_GPU()   { live, made, lost, owners: [{ kind, age, stack }] }
+const GPU = { live: new Set(), made: 0, lost: 0, warned: 0 };
+{
+  const orig = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function(type, attrs){
+    const had = this.__tmxCtx;
+    const ctx = orig.call(this, type, attrs);
+    if(ctx && !had && /^(webgl|webgl2|experimental-webgl)$/.test(type)){
+      this.__tmxCtx = ctx;
+      const rec = { kind: type, canvas: this, t: performance.now(), stack: (new Error().stack || '').split('\n').slice(2, 6).join('\n') };
+      GPU.live.add(rec); GPU.made++;
+      this.addEventListener('webglcontextlost', () => { GPU.live.delete(rec); GPU.lost++; }, { once: true });
+      if(GPU.live.size > 8 && GPU.live.size > GPU.warned){
+        GPU.warned = GPU.live.size;
+        console.warn('[TYPEMAXX] ' + GPU.live.size + ' live WebGL contexts. The browser starts killing the oldest (the 3D scene) at about 16. '
+          + 'Release a canvas you are done with via TYPEMAXX_RELEASE_CANVAS(canvas). Newest was made at:\n' + rec.stack);
+      }
+    }
+    return ctx;
+  };
+}
+// Free a canvas's WebGL context right now instead of whenever GC gets to it.
+function releaseCanvas(canvas){
+  if(!canvas) return;
+  const gl = canvas.__tmxCtx;
+  if(gl && !gl.isContextLost()){
+    const ext = gl.getExtension('WEBGL_lose_context');
+    if(ext) ext.loseContext();
+  }
+  canvas.width = canvas.height = 1;
+  if(canvas.parentNode) canvas.parentNode.removeChild(canvas);
+}
+window.TYPEMAXX_RELEASE_CANVAS = releaseCanvas;
+window.TYPEMAXX_GPU = () => ({
+  live: GPU.live.size, made: GPU.made, lost: GPU.lost,
+  owners: [...GPU.live].map(r => ({ kind: r.kind, age: Math.round((performance.now() - r.t) / 1000) + 's', stack: r.stack })),
+});
+
 // ══════════════════════════════════════════════════════════ renderer
 const stage = document.getElementById('stage');
 const renderer = new THREE.WebGLRenderer({antialias:true, alpha:true,
@@ -64,6 +109,16 @@ const renderer = new THREE.WebGLRenderer({antialias:true, alpha:true,
 // exposed: on a Retina panel this is 4x the fragments, and the tube shader
 // hides a drop to 1.5 well if more headroom is ever needed.
 renderer.setPixelRatio(Math.min(devicePixelRatio, SCENE.pixelRatio ?? 2));
+// If the scene's context is ever lost anyway, say why, and let three rebuild it
+// when the browser hands it back (three re-uploads everything on restore).
+renderer.domElement.addEventListener('webglcontextlost', e => {
+  e.preventDefault();
+  console.error('[TYPEMAXX] the 3D scene lost its WebGL context (' + GPU.live.size + ' contexts live on the page). See TYPEMAXX_GPU().');
+});
+renderer.domElement.addEventListener('webglcontextrestored', () => {
+  console.warn('[TYPEMAXX] WebGL context restored');
+  if(typeof bgTexture !== 'undefined' && bgTexture) bgTexture.needsUpdate = true;
+});
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -1728,9 +1783,11 @@ async function bgCreate(spec){
 }
 
 function bgDestroy(layer){
-  if(!layer) return;
+  if(!layer || layer.destroyed) return;
+  layer.destroyed = true;
   try { if(layer.inst && layer.inst.dispose) layer.inst.dispose(); } catch(e){}
-  if(layer.canvas.parentNode) layer.canvas.parentNode.removeChild(layer.canvas);
+  // its renderer's context goes now, not at the next garbage collection
+  releaseCanvas(layer.canvas);
 }
 
 // Fill the frustum at a fixed distance, so the quad reads as an infinite
@@ -1827,7 +1884,9 @@ if(typeof window !== 'undefined'){
       showErr('background: ' + (e && (e.stack || e.message) || e));
       return false;
     });
+  let bgGen = 0;
   const setBackground = async (spec, fadeSeconds) => {
+    const gen = ++bgGen;
     bgFadeDur = (fadeSeconds == null) ? 0.8 : Math.max(0, fadeSeconds);
     if(bgLayers[1]){ bgDestroy(bgLayers[1]); bgLayers.length = 1; bgFadeT = 0; }
     if(!spec){
@@ -1838,6 +1897,8 @@ if(typeof window !== 'undefined'){
     }
     if(bgQuad) bgQuad.visible = true;
     const layer = await bgCreate(spec);
+    // a newer call arrived while this one was building: it wins, this one goes
+    if(gen !== bgGen){ bgDestroy(layer); return false; }
     if(!bgLayers.length || bgFadeDur === 0){
       bgLayers.forEach(bgDestroy);
       bgLayers = [layer];

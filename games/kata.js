@@ -297,8 +297,11 @@ async function loadAssets() {
       img.onerror = () => reject(new Error('atlas.png failed to load'));
       img.src = BASE + 'atlas.png';
     });
+    // decode now, off the frame, so the first drawImage does not stall; decode()
+    // can hang in a background tab, so it gets a short leash
+    if (img.decode) await Promise.race([img.decode().catch(() => {}), new Promise(r => setTimeout(r, 1500))]);
     S.M = M; S.img = img;
-    buildTints();
+    await buildTints();
     S.ready = true;
   } catch (e) {
     S.error = String(e && e.message || e);
@@ -306,8 +309,11 @@ async function loadAssets() {
   S.loading = false;
 }
 
-// Tint only the band of the atlas that holds the fonts, once per colour.
-function buildTints() {
+// Tint only the band of the atlas that holds the fonts, once per colour, a
+// colour per idle moment so no single frame pays for all of them.
+const idleTick = () => new Promise(r => typeof requestIdleCallback === 'function'
+  ? requestIdleCallback(r, { timeout: 100 }) : setTimeout(r, 16));
+async function buildTints() {
   let y0 = 1e9, y1 = 0;
   for (const face of Object.values(S.M.fonts)) {
     for (const g of Object.values(face.glyphs)) {
@@ -317,6 +323,7 @@ function buildTints() {
   S.fontY0 = y0;
   const w = S.img.width, h = y1 - y0;
   for (const [name, css] of Object.entries(COL)) {
+    await idleTick();
     const c = document.createElement('canvas');
     c.width = w; c.height = h;
     const g = c.getContext('2d');
@@ -4076,6 +4083,15 @@ const KATA = {
     g.restore();
   },
 };
+
+// Get the art ready while the player is still on the menus: by the time KATA is
+// picked, nothing is left to fetch, decode or tint. (The sound engine does the
+// same with its samples.) Hosts may also await KATA.showcase.preload().
+if (typeof window !== 'undefined') {
+  const start = () => { if (!S.ready && !S.loading) loadAssets(); };
+  if (document.readyState === 'complete') setTimeout(start, 300);
+  else addEventListener('load', () => setTimeout(start, 300), { once: true });
+}
 
 export default KATA;
 export { KATA };
