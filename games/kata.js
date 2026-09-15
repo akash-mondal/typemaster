@@ -57,18 +57,52 @@ const COL = {
 const CAP_ROOFS = 110;          // roofs to full difficulty
 const STAGE_ROOFS = 11;         // roofs per stage
 const MAX_STAGE = 10;
-const WORDS = [
-  { hz: ['duck', 'drop', 'block', 'guard'], kill: ['cut', 'hit', 'end', 'now'], hook: ['hook', 'rope', 'grip'] },
-  { hz: ['duck', 'slide', 'block', 'parry'], kill: ['slash', 'strike', 'blade', 'sever'], hook: ['swing', 'reach', 'climb'] },
-  { hz: ['slide', 'evade', 'parry', 'deflect'], kill: ['cleave', 'sunder', 'finish', 'strike'], hook: ['grapple', 'ascend', 'hurtle'] },
-];
+// the action words: what you type to dodge, block, kill or throw the hook.
+// Each pool is sorted by how hard a word is to type; the run's difficulty picks
+// from a window that slides from the easy end to the hard end, and a word is
+// not used again until the rest of its window has had a turn.
+const ACTION_WORDS = {
+  // a star or something falling: get out of the way
+  dodge: `duck drop dive roll dash hop lean sway bend skip slip dodge leap vault spin crouch twist weave
+    swerve spring tumble flinch escape sidle bound hurdle scramble sidestep backflip cartwheel somersault
+    dip bob jink evade scurry wriggle zigzag`,
+  // an arrow: meet it with the blade
+  block: `ward fend bat guard block parry brace repel catch swat knock turn shield snatch counter deflect
+    riposte rebuff repulse intercept withstand stonewall check foil thwart absorb`,
+  // the ronin's gold word and the duel: finish it
+  kill: `cut hit end hack chop stab slay rend slash smite pierce strike sever lunge thrust cleave sunder
+    finish impale dispatch quell silence vanquish decimate execute extinguish annihilate obliterate
+    subdue topple crush`,
+  // the hook: across a chasm, over an overhang
+  hook: `hook rope grip pull haul yank reach latch cling swing climb clasp grasp hoist scale tether
+    anchor ascend hurtle grapple clamber rappel traverse catapult zipline lasso heave vault`,
+};
+// how hard a word is to type: its length, plus the keys fingers reach for
+const wordCost = w => w.length + [...w].reduce((a, c) => a + ('qzxjkvwyb'.includes(c) ? 0.7 : 0), 0)
+  + (/(.)\1/.test(w) ? 0.4 : 0);
+for (const k in ACTION_WORDS) ACTION_WORDS[k] = [...new Set(ACTION_WORDS[k].trim().split(/\s+/))].sort((a, b) => wordCost(a) - wordCost(b));
+const RECENT = {};
+function actionWord(kind, D, rnd) {
+  const pool = ACTION_WORDS[kind];
+  const n = pool.length;
+  // the window: the easiest third at the start, the hardest third at full fury
+  const centre = lerp(0.12, 0.8, D.d) * (n - 1);
+  const half = Math.max(3, n * 0.2);
+  const lo = Math.max(0, Math.round(centre - half)), hi = Math.min(n - 1, Math.round(centre + half));
+  const recent = RECENT[kind] || (RECENT[kind] = []);
+  let choices = pool.slice(lo, hi + 1).filter(w => !recent.includes(w));
+  if (!choices.length) choices = pool.slice(lo, hi + 1);
+  const w = pick(choices, rnd);
+  recent.push(w);
+  if (recent.length > Math.max(2, Math.ceil((hi - lo + 1) / 2))) recent.shift();
+  return w;
+}
 const STAGE_NOTES = ['', 'the road begins', 'the city stirs', 'more blades on the roofs', 'the chasms widen',
   'the tiles grow brittle', 'they strike twice', 'blades wait in pairs', 'shadows hide in wait',
   'the ronin show no mercy', 'full fury'];
 function diffAt(roofs) { const x = clamp(roofs / CAP_ROOFS, 0, 1); return x * x * (3 - 2 * x); }
 function stageAt(roofs) { return Math.min(MAX_STAGE, 1 + Math.floor(roofs / STAGE_ROOFS)); }
 function tune(d) {
-  const tier = d < 0.34 ? 0 : d < 0.64 ? 1 : 2;
   const ramp = (a, b) => clamp((d - a) / (b - a), 0, 1);
   return Object.assign({
     d, speed: lerp(16, 44, d), lead: 150, window: lerp(2.5, 1.15, d),
@@ -81,7 +115,7 @@ function tune(d) {
     roninMul: d >= 0.645 ? 1.8 : 1,
     ambush: d >= 0.78 ? lerp(0.4, 0.55, ramp(0.78, 1)) : 0,
     laneJitter: lerp(4, 13, d), gapVar: lerp(14, 34, d), chasm: lerp(76, 96, d),
-  }, WORDS[tier]);
+  });
 }
 
 const RANKS = [
@@ -225,29 +259,28 @@ const S = {
   ctx: null,
 };
 
+// Scores, stages and ranks live only in memory, for this visit. Nothing is
+// written to the browser: saved progress will come from the account database.
 function loadRank() {
-  try {
-    S.rankBest = Math.max(0, Math.min(3, parseInt(localStorage.getItem('typemaxx.kata.rank') || '0', 10) || 0));
-    S.best = parseInt(localStorage.getItem('typemaxx.kata.best') || '0', 10) || 0;
-    S.bestStage = parseInt(localStorage.getItem('typemaxx.kata.stage') || '0', 10) || 0;
-  } catch (e) { S.rankBest = 0; S.best = 0; }
+  S.rankBest = S.rankBest || 0;
+  S.best = S.best || 0;
+  S.bestStage = S.bestStage || 0;
+  // clear what older versions stored on this device
+  try { for (const k of ['rank', 'best', 'stage']) localStorage.removeItem('typemaxx.kata.' + k); } catch (e) {}
 }
 function saveStage(st) {
   if (st <= S.bestStage) return false;
   S.bestStage = st;
-  try { localStorage.setItem('typemaxx.kata.stage', String(st)); } catch (e) {}
   return true;
 }
 function saveBest(score) {
   if (score <= S.best) return false;
   S.best = score;
-  try { localStorage.setItem('typemaxx.kata.best', String(score)); } catch (e) {}
   return true;
 }
 function saveRank(r) {
   if (r <= S.rankBest) return false;
   S.rankBest = r;
-  try { localStorage.setItem('typemaxx.kata.rank', String(r)); } catch (e) {}
   return true;
 }
 
@@ -794,7 +827,7 @@ function addPower(opt) {
 
 function makeHazard(kind, word, D, scale) {
   return {
-    kind, word, state: 'pending', t: 0, T: (D.window + word.length * 0.14) * (scale || 1),
+    kind, word, state: 'pending', t: 0, T: (D.window + word.length * 0.16) * (scale || 1),
     typed: '', result: null, doneT: 0, badT: -9, startT: 0, owner: null, opt: null,
   };
 }
@@ -804,12 +837,12 @@ function addEnemy(opt, kind, rnd, D, wk, minAt) {
   const late = wk === 'snow' || rnd() < D.ambush;
   let at = late ? Math.max(3, opt.len - 4) : clamp(Math.floor(opt.len * (0.35 + rnd() * 0.25)), 3, opt.len - 3);
   if (minAt) { if (minAt > opt.len - 2) return false; at = Math.max(at, minAt); }
-  const word = kind === 'kage' ? pick(D.hz.slice(0, 2), rnd) : pick(D.hz.slice(2), rnd);
+  const word = actionWord(kind === 'kage' ? 'dodge' : 'block', D, rnd);
   const hz = makeHazard(kind === 'kage' ? 'shuriken' : 'arrow', word, D, late ? 0.85 : 1);
-  opt.enemy = { kind, at, state: 'waiting', hz, deadT: null, killWord: pick(D.kill, rnd), hidden: late };
+  opt.enemy = { kind, at, state: 'waiting', hz, deadT: null, killWord: actionWord('kill', D, rnd), hidden: late };
   hz.owner = opt.enemy;
   if (rnd() < D.twice) {
-    const w2 = kind === 'kage' ? pick(D.hz.slice(0, 2), rnd) : pick(D.hz.slice(2), rnd);
+    const w2 = actionWord(kind === 'kage' ? 'dodge' : 'block', D, rnd);
     opt.enemy.hz2 = makeHazard(hz.kind, w2, D, 0.9);
   }
   opt.w = Math.max(opt.w, opt.len * ADV + PADX * 2 + 36);
@@ -826,6 +859,7 @@ function addEnemy(opt, kind, rnd, D, wk, minAt) {
 }
 
 function newRun() {
+  for (const k in RECENT) delete RECENT[k];
   const D = tune(0);
   let seed = (Math.random() * 1e9) | 0;
   if (S.daily) {
@@ -930,7 +964,7 @@ function genSegment(wk, seg) {
       else {
         R.enemyRun = 0;
         if (w.drop && rnd() < w.drop * D.dropMul) {
-          opt.drop = makeHazard(wk === 'snow' ? 'icicle' : 'crate', pick(D.hz.slice(0, 2), rnd), D);
+          opt.drop = makeHazard(wk === 'snow' ? 'icicle' : 'crate', actionWord('dodge', D, rnd), D);
           opt.drop.at = clamp(Math.floor(opt.len * 0.5), 3, opt.len - 3);
         } else if (rnd() < w.heart * D.heartMul) {
           opt.heart = { i: clamp(randInt(2, opt.len - 3, rnd), 1, opt.len - 1), taken: false };
@@ -945,7 +979,7 @@ function genSegment(wk, seg) {
 
     // a chasm the hook must cross
     if (!quiet && !lastGrapple && k < count - 1 && k !== forkAt && rnd() < W.w.grapple * D.grappleMul) {
-      opt.grapple = { word: pick(D.hook, rnd) };
+      opt.grapple = { word: actionWord('hook', D, rnd) };
       gap = Math.round(D.chasm + rnd() * 12);
       R.pendingHook = true;
       lastGrapple = true;
@@ -2174,7 +2208,7 @@ function genTower(wk, seg, x, lane) {
       const r = rnd();
       if (r < (w.kage + w.archer) * D.enemyMul * 0.8) addEnemy(opt, r < w.kage * D.enemyMul * 0.8 ? 'kage' : 'archer', rnd, D, wk);
       else if (rnd() < 0.3 * D.dropMul) {
-        opt.drop = makeHazard('debris', pick(D.hz.slice(0, 2), rnd), D);
+        opt.drop = makeHazard('debris', actionWord('dodge', D, rnd), D);
         opt.drop.at = clamp(Math.floor(opt.len * 0.5), 3, opt.len - 3);
       } else if (rnd() < 0.1 * D.heartMul) {
         opt.heart = { i: clamp(randInt(3, opt.len - 3, rnd), 1, opt.len - 1), taken: false };
@@ -2184,7 +2218,7 @@ function genTower(wk, seg, x, lane) {
       if (rnd() < 0.25) addPower(opt);
       // an overhang: only the hook gets you over it
       if (!lastHook && i < floors - 1 && i + 1 !== forkAt && rnd() < 0.16 * D.grappleMul) {
-        opt.grapple = { word: pick(D.hook, rnd) };
+        opt.grapple = { word: actionWord('hook', D, rnd) };
         lastHook = true;
       } else lastHook = false;
     }
@@ -3394,12 +3428,13 @@ function drawOverlays() {
     const u = clamp(hz.t / hz.T, 0, 1);
     const parryWin = hz.kind === 'arrow' && u >= 0.62;
     const catchWin = hz.kind === 'shuriken' && u < 0.5 && !hz.flawed;
-    wordBox(90, 36, 140, hz.word, hz.typed, u, hz.badT, (x, y) => {
+    const hw = Math.max(140, hz.word.length * 16 + 36), hx = Math.round((LW - hw) / 2);
+    wordBox(hx, 36, hw, hz.word, hz.typed, u, hz.badT, (x, y) => {
       if (hz.kind === 'shuriken') put('shuriken', frameOf('shuriken', tt), x + 14, y + 16);
       else if (hz.kind === 'arrow') blitFlip('arrow', x + 7, y + 15);
       else rect(x + 11, y + 10, 4, 14, COL.ice);
     });
-    if (parryWin) frame1(89, 35, 142, 38, ((tt * 10) | 0) % 2 ? COL.hot : COL.gold);
+    if (parryWin) frame1(hx - 1, 35, hw + 2, 38, ((tt * 10) | 0) % 2 ? COL.hot : COL.gold);
     if (catchWin) textC('small', 'catch it', 160, 76, 'hot');
   }
   const d = R.duel;
