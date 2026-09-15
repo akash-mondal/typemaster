@@ -18,6 +18,7 @@ import { PROPS, SHOT, BOARD, SCENE } from './props.js';
 import { rainOn, stepRain } from './rain.js';
 import { TEXT } from './text.js';
 import { createLobby } from './lobby.js';
+import { createXCube } from './xcube.js';
 
 // A page can override SCENE without copying props.js into the project, which
 // keeps a simple project to a single index.html:
@@ -320,6 +321,12 @@ window.TYPEMAXX_BOARD_BOUNDS = () => boardBounds().clone();
     if(!raf) raf = requestAnimationFrame(tick);
   });
 }
+
+// The X cube on the floor beside the keyboard: part of the launch screen, owned
+// by the engine (see xcube.js). TYPEMAXX_XCUBE.show(false) turns it off.
+const xcube = createXCube({ THREE, RoundedBoxGeometry, scene, ground: () => boardBounds(), lobby: lobby.api,
+  addObject: (o, opts) => window.TYPEMAXX_ADD_OBJECT(o, opts), setVisible: (o, v, sec) => window.TYPEMAXX_SET_VISIBLE(o, v, sec) });
+window.TYPEMAXX_XCUBE = xcube.api;
 
 // ══════════════════════════════════════════════════════════ procedural maps
 // A height field turned into a tangent-space normal map by Sobel. Roughness alone
@@ -1769,7 +1776,14 @@ function bgMakeCanvas(){
 //   TYPEMAXX_SET_BACKGROUND({ factory, brightness })
 //   TYPEMAXX_SET_BACKGROUND({ module: '/bg.js', export: 'makeRoom' })
 //   TYPEMAXX_SET_BACKGROUND(makeRoom)
+// The engine's own backdrops, by name:
+//   TYPEMAXX_SET_BACKGROUND('white-room')   a bright, seamless white studio
+const BUILTIN_BACKGROUNDS = { 'white-room': whiteRoom };
 function bgSpec(spec){
+  if(typeof spec === 'string'){
+    if(!BUILTIN_BACKGROUNDS[spec]) throw new Error('background: no built-in background named "' + spec + '" (have: ' + Object.keys(BUILTIN_BACKGROUNDS).join(', ') + ')');
+    return { factory: BUILTIN_BACKGROUNDS[spec] };
+  }
   if(typeof spec === 'function') return { factory: spec };
   if(!spec || typeof spec !== 'object')
     throw new Error('background: expected a factory function or { factory } / { module, export }, got ' + typeof spec);
@@ -1777,6 +1791,44 @@ function bgSpec(spec){
     throw new Error('background: the spec has neither a `factory` function nor a `module` URL. '
       + 'Pass the factory itself, TYPEMAXX_SET_BACKGROUND(makeRoom), or { factory: makeRoom }.');
   return spec;
+}
+
+// A seamless white studio. It is only a soft gradient, so it is painted with 2D
+// canvas and costs no WebGL context at all: the wall a touch greyer at the top,
+// the floor brighter where the light lands, the corners falling off gently.
+function whiteRoom(canvas){
+  const g = canvas.getContext('2d');
+  let w = 0, h = 0;
+  function paint(){
+    const W = Math.max(2, Math.round((canvas.clientWidth || innerWidth) / 2));
+    const H = Math.max(2, Math.round((canvas.clientHeight || innerHeight) / 2));
+    if(W === w && H === h) return;
+    w = canvas.width = W; h = canvas.height = H;
+    const v = g.createLinearGradient(0, 0, 0, H);
+    v.addColorStop(0.00, 'rgb(212,213,215)');
+    v.addColorStop(0.45, 'rgb(217,218,219)');
+    v.addColorStop(0.66, 'rgb(229,229,230)');
+    v.addColorStop(0.84, 'rgb(236,236,237)');
+    v.addColorStop(1.00, 'rgb(232,232,233)');
+    g.fillStyle = v; g.fillRect(0, 0, W, H);
+    // key light from the right
+    const side = g.createLinearGradient(0, 0, W, 0);
+    side.addColorStop(0, 'rgba(0,0,0,0.035)');
+    side.addColorStop(0.55, 'rgba(0,0,0,0)');
+    side.addColorStop(1, 'rgba(255,255,255,0.05)');
+    g.fillStyle = side; g.fillRect(0, 0, W, H);
+    // corners fall away softly
+    const r = g.createRadialGradient(W * 0.5, H * 0.55, Math.min(W, H) * 0.35, W * 0.5, H * 0.55, Math.hypot(W, H) * 0.62);
+    r.addColorStop(0, 'rgba(0,0,0,0)');
+    r.addColorStop(1, 'rgba(0,0,0,0.06)');
+    g.fillStyle = r; g.fillRect(0, 0, W, H);
+    // a whisper of grain so the gradient never bands
+    const img = g.getImageData(0, 0, W, H), d = img.data;
+    for(let i = 0; i < d.length; i += 4){ const n = (Math.random() - 0.5) * 3; d[i] += n; d[i + 1] += n; d[i + 2] += n; }
+    g.putImageData(img, 0, 0);
+  }
+  paint();
+  return { render(){ paint(); }, resize(){ paint(); }, dispose(){} };
 }
 
 async function bgCreate(spec){
@@ -2017,6 +2069,7 @@ renderer.setAnimationLoop(now=>{
   for(const p of propObjects.values()) if(p.step) p.step(now);
   if(!lobby.ownsCamera()) controls.update();
   lobby.step(dt, now);
+  xcube.step(dt);
   const T = THEMES[activeTheme];
   if(T && T.bloom){
     const c = ensureComposer();
