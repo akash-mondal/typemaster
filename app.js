@@ -206,6 +206,63 @@ window.TYPEMAXX_REMOVE_OBJECT = obj => {
 }
 window.TYPEMAXX_BOARD_BOUNDS = () => boardBounds().clone();
 
+// Show or hide a page-made object with a fade instead of a pop, e.g. the lobby
+// props going away as the menu gives way to game select.
+//   TYPEMAXX_SET_VISIBLE(object3D, false, 0.3)   fades out, then .visible = false
+//   TYPEMAXX_SET_VISIBLE(object3D, true, 0.4)    .visible = true, then fades in
+// Returns a promise that settles when the fade ends. A newer call on the same
+// object takes over from wherever the last one had got to.
+{
+  const fades = new Map();              // object3D -> { from, to, t0, dur, resolve }
+  const mats = obj => {
+    const out = [];
+    obj.traverse(o => {
+      if(!o.material) return;
+      for(const m of (Array.isArray(o.material) ? o.material : [o.material])){
+        if(m.userData.fadeBase == null){ m.userData.fadeBase = m.opacity; m.userData.fadeTransparent = m.transparent; }
+        out.push(m);
+      }
+    });
+    return out;
+  };
+  const apply = (obj, k) => {
+    for(const m of mats(obj)){
+      const want = k < 0.999;
+      if(m.transparent !== (want || m.userData.fadeTransparent)){ m.transparent = want || m.userData.fadeTransparent; m.needsUpdate = true; }
+      m.opacity = m.userData.fadeBase * k;
+    }
+  };
+  let raf = 0;
+  const tick = () => {
+    raf = 0;
+    const now = performance.now();
+    for(const [obj, f] of fades){
+      const u = f.dur > 0 ? Math.min(1, (now - f.t0) / (f.dur * 1000)) : 1;
+      const e = u * u * (3 - 2 * u);
+      f.level = f.from + (f.to - f.from) * e;
+      apply(obj, f.level);
+      if(u >= 1){
+        fades.delete(obj);
+        if(f.to === 0) obj.visible = false;
+        f.resolve();
+      }
+    }
+    if(fades.size) raf = requestAnimationFrame(tick);
+  };
+  window.TYPEMAXX_SET_VISIBLE = (obj, visible, seconds) => new Promise(resolve => {
+    if(!obj || !obj.isObject3D){ resolve(); return; }
+    const prev = fades.get(obj);
+    if(prev) prev.resolve();
+    const from = prev ? prev.level : (obj.visible ? 1 : 0);
+    const to = visible ? 1 : 0;
+    if(visible) obj.visible = true;
+    if(from === to){ apply(obj, to); if(!visible) obj.visible = false; fades.delete(obj); resolve(); return; }
+    const dur = seconds == null ? 0.35 : Math.max(0, +seconds || 0);
+    fades.set(obj, { from, to, level: from, t0: performance.now(), dur, resolve });
+    if(!raf) raf = requestAnimationFrame(tick);
+  });
+}
+
 // ══════════════════════════════════════════════════════════ procedural maps
 // A height field turned into a tangent-space normal map by Sobel. Roughness alone
 // gives you dull-vs-shiny; only normals give the surface actual tooth.

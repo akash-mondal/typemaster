@@ -140,12 +140,77 @@ export async function buildCRT({ url, parent }){
   // The keyboard arrives as the sixth argument so a painter never has to reach
   // for a listener of its own — the boards already own those, and two sets of
   // listeners fight each other.
+  //
+  // Moving between screens fades through black. It happens on its own when the
+  // painter changes (the old one keeps drawing while the picture sinks, the new
+  // one rises out of black), and a page whose menus live inside ONE painter
+  // asks for it directly:
+  //
+  //   TYPEMAXX_FADE(() => { mode = 'select'; }, { out: 0.28, in: 0.4 })
+  //
+  // The callback runs at full black, so whatever it changes is never seen
+  // mid-cut. While a fade runs, painters get no keystrokes: a key pressed into
+  // a picture that is leaving must not act on it. `TYPEMAXX.screenFade = false`
+  // turns the automatic fade off.
   const boot = SCENE.screen ?? PROPS.crt.screen;
+  const NO_KEYS = { pull: () => ({ chars: [], keys: [], back: 0, enter: 0 }), down: new Set() };
+  const smooth = x => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
+  // phase: 'out' sinking to black, 'in' rising from it
+  const fade = { phase: null, t0: 0, out: 0.28, in: 0.4, swap: null, hold: null, pixel: null, resolve: null };
+  let lastFn = null;
+  const startFade = (swap, opts) => new Promise(resolve => {
+    const o = opts || {};
+    // a fade asked for mid-fade joins it: the swap runs at this fade's black
+    if(fade.phase === 'out'){ const prev = fade.swap; fade.swap = () => { prev && prev(); swap && swap(); }; const r = fade.resolve; fade.resolve = () => { r && r(); resolve(); }; return; }
+    fade.out = Math.max(0, +o.out >= 0 ? +o.out : 0.28);
+    fade.in = Math.max(0, +o.in >= 0 ? +o.in : 0.4);
+    // start the fall from wherever a rising fade had got to, so it never jumps
+    const level = fade.phase === 'in' ? 1 - smooth((performance.now() - fade.t0) / 1000 / fade.in) : 0;
+    fade.phase = 'out';
+    fade.t0 = performance.now() - level * fade.out * 1000;
+    fade.swap = swap; fade.resolve = resolve;
+  });
+  window.TYPEMAXX_FADE = (swap, opts) => startFade(swap, opts);
+  const current = () => { const pick = SCENE.screen ?? PROPS.crt.screen; return (typeof pick === 'function') ? pick : SCREENS[pick]; };
   const screen = (boot === 'terminal') ? 'terminal'
     : (ctx, w, h, seconds, now) => {
-        const pick = SCENE.screen ?? PROPS.crt.screen;
-        const fn = (typeof pick === 'function') ? pick : SCREENS[pick];
-        if(typeof fn === 'function') fn(ctx, w, h, seconds, now, INPUT);
+        const fn = current();
+        // the painter changed under us: keep the old one on the tube and fade it out
+        if(SCENE.screenFade !== false && typeof lastFn === 'function' && fn !== lastFn && fade.phase !== 'out'){
+          fade.hold = lastFn;
+          // an outgoing game may keep asking for its pixel grid while it fades;
+          // the grid the page chose at the switch is the one that applies after
+          fade.pixel = SCENE.pixel;
+          startFade(null);
+        }
+        if(!fade.hold) lastFn = fn;
+        let black = 0;
+        const t = (performance.now() - fade.t0) / 1000;
+        if(fade.phase === 'out'){
+          black = fade.out > 0 ? smooth(t / fade.out) : 1;
+          if(t >= fade.out){
+            if(fade.hold){ fade.hold = null; SCENE.pixel = fade.pixel; }
+            try { fade.swap && fade.swap(); } catch(e){ console.error('TYPEMAXX_FADE:', e); }
+            fade.swap = null;
+            lastFn = current();
+            fade.phase = 'in'; fade.t0 = performance.now();
+            black = 1;
+          }
+        } else if(fade.phase === 'in'){
+          black = fade.in > 0 ? 1 - smooth(t / fade.in) : 0;
+          if(t >= fade.in){ fade.phase = null; black = 0; const r = fade.resolve; fade.resolve = null; r && r(); }
+        }
+        const drawFn = fade.hold || current();
+        if(typeof drawFn === 'function') drawFn(ctx, w, h, seconds, now, fade.phase ? NO_KEYS : INPUT);
+        if(black > 0.001){
+          ctx.save();
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          ctx.globalAlpha = Math.min(1, black);
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+          ctx.restore();
+        }
       };
   const crt = createCrtTerminal({ width:bufW, height:bufH, screen,
                                   getOptions: () => OPTIONS,
