@@ -270,7 +270,7 @@ function drawGround(L, scroll, biome, nextBiome, mix) {
     const y = GROUND - 14;
     for (let x = Math.round(tileStart(scroll, sw)); x < LW; x += sw) g.drawImage(c, x, y);
     // the earth continues below the strip in its last row's colour
-    g.drawImage(c, 10, sh - 1, 1, 1, 0, y + sh, LW, LH - (y + sh));
+    g.drawImage(c, 10, sh - 1, 1, 1, 0, y + sh, LW, LH + SHOW_LIFT - (y + sh));
     g.globalAlpha = 1;
   };
   one(biome, 1);
@@ -532,21 +532,21 @@ function drawWeather(R, L) {
       const x = (hash(i, 31) * LW + S.t * 40) % LW, y = (hash(i, 32) * LH + S.t * 220 * (0.8 + hash(i, 33) * 0.4)) % LH;
       rect(x, y, 1, 5, '#D8E4F8', 0.6); rect(x - 1, y + 5, 1, 2, '#D8E4F8', 0.35);
     }
-    rect(0, 0, LW, LH, '#20304A', w === 'storm' ? 0.22 : 0.12);
+    rect(0, -SHOW_LIFT, LW, LH + 2 * SHOW_LIFT, '#20304A', w === 'storm' ? 0.22 : 0.12);
   } else if (w === 'snow') {
     for (let i = 0; i < 70; i++) {
       const x = (hash(i, 41) * LW + Math.sin(S.t + i) * 8 - S.t * 12) % LW, y = (hash(i, 42) * LH + S.t * 30 * (0.6 + hash(i, 43))) % LH;
       rect((x + LW) % LW, y, hash(i, 44) < 0.3 ? 2 : 1, hash(i, 44) < 0.3 ? 2 : 1, '#FFFFFF', 0.8);
     }
-    rect(0, 0, LW, LH, '#E8F0FF', 0.12);
+    rect(0, -SHOW_LIFT, LW, LH + 2 * SHOW_LIFT, '#E8F0FF', 0.12);
   } else if (w === 'dust') {
     for (let i = 0; i < 50; i++) { const x = (hash(i, 51) * LW - S.t * 90 * (0.6 + hash(i, 52))) % LW; rect((x + LW) % LW, hash(i, 53) * LH, 3, 1, '#D8B888', 0.35); }
-    rect(0, 0, LW, LH, '#B89060', 0.2);
+    rect(0, -SHOW_LIFT, LW, LH + 2 * SHOW_LIFT, '#B89060', 0.2);
   } else if (w === 'fog') {
     const gr = g.createLinearGradient(0, 80, 0, LH); gr.addColorStop(0, 'rgba(220,226,230,0)'); gr.addColorStop(0.6, 'rgba(220,226,230,0.45)'); gr.addColorStop(1, 'rgba(220,226,230,0.25)');
-    g.fillStyle = gr; g.fillRect(0, 0, LW, LH);
+    g.fillStyle = gr; g.fillRect(0, -SHOW_LIFT, LW, LH + 2 * SHOW_LIFT);
   } else if (w === 'heat') {
-    rect(0, 0, LW, LH, '#FFF0D0', 0.08);
+    rect(0, -SHOW_LIFT, LW, LH + 2 * SHOW_LIFT, '#FFF0D0', 0.08);
   }
   // ambient particles of the hour
   if (L.fx === 'fireflies') for (let i = 0; i < 14; i++) { const x = (hash(i, 61) * LW + Math.sin(S.t * 0.7 + i) * 12) % LW, y = 150 + hash(i, 62) * 50 + Math.sin(S.t * 1.3 + i) * 6; rect(x, y, 1, 1, '#E8FF90', (0.5 + 0.5 * Math.sin(S.t * 3 + i * 2)) * (L.fxA || 1)); }
@@ -1315,6 +1315,9 @@ function drawLoading() { rect(0, 0, LW, LH, '#1A120C'); for (let i = 0; i < 3; i
 // A 10 s trailer, five shots cut on the intro music's bar lines (every 2 s at 120 bpm):
 // dawn meadow, a river crossing, a deer hunt, the Pass by moonlight, sunset on the coast.
 const SHOW_LOOP = 10, SHOW_INTRO = 1.5;
+// The select screen lays its logo over the top third and the game tiles over the lower third,
+// so every shot is lifted until the road runs through the clear band between them (y ~154).
+const SHOW_LIFT = 48;
 const SHOTS = [
   { biome: 'meadow', hour: 2.3, weather: 'clear' },
   { biome: 'river', hour: 3.6, weather: 'clear', river: true },
@@ -1333,10 +1336,12 @@ function drawShowcase(t) {
   const prev = S.R, prevV = S.view;
   S.R = R; S.view = { scroll: (i * 900 + local * 40), walkT: local + i, moving: true, loops: {} };
   const L = lightAt(shot.biome, R.hour);
+  ctx().save();
+  ctx().translate(0, -SHOW_LIFT);
   if (shot.river) {
     drawTrail({ light: L, noWagon: true, noLandmark: true, scroll: S.view.scroll });
     for (let k = -1; k < 7; k++) put('water_river', frameOf('water_river', t) + k, k * 64 - ((local * 30) % 64), ROAD + 12, { lit: L });
-    rect(0, ROAD + 26, LW, LH - ROAD - 26, '#1E4A5A', 0.9);
+    rect(0, ROAD + 26, LW, LH + SHOW_LIFT - ROAD - 26, '#1E4A5A', 0.9);
     put('raft', 0, WAGON_X, ROAD + 8 + Math.sin(local * 3) * 2, { lit: L });
     drawCaravan(R, L, { moving: true, walkT: local, noSim: true });
     if (local > 0.5 && local < 1.6) put('rock_a', 0, lerp(-10, WAGON_X - 60, (local - 0.5) / 1.1), ROAD + 16, { lit: L });
@@ -1347,10 +1352,11 @@ function drawShowcase(t) {
     else put('deer_run', 0, lerp(-30, 200, 1.3 / 2), GROUND + 24, { lit: L, alpha: 1 - (local - 1.3) / 0.7 });
     const word = 'antler', typed = Math.min(word.length, Math.floor(local * 6));
     if (local < 1.3) { const wx = x; const w = textW('old', word); panel(wx - w / 2 - 3, GROUND - 38, w + 6, 13, 0.92); let pen = wx - w / 2; for (let k = 0; k < word.length; k++) pen = text('old', word[k], pen, GROUND - 36, k < typed ? 'green' : 'ink'); }
-    if (local > 1.25 && local < 1.4) rect(0, 0, LW, LH, '#FFF4D0', 0.35);
+    if (local > 1.25 && local < 1.4) rect(0, SHOW_LIFT, LW, LH, '#FFF4D0', 0.35);
   } else {
     drawTrail({ light: L, scroll: S.view.scroll, moving: true, walkT: local + i, noLandmark: true, noSim: true });
   }
+  ctx().restore();
   S.R = prev; S.view = prevV;
   // a quick white wipe on every cut
   if (local < 0.12 && lt > 1) rect(0, 0, LW, LH, '#FFF6E0', 0.55 * (1 - local / 0.12));
