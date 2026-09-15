@@ -1305,11 +1305,14 @@ function buildIcon() {
 const SHOW_LOOP = 10, SHOW_INTRO = 1.5;
 // VECTOR is fine lines of light on black: the tube's grille and rolling bar turn that into streaks,
 // so while it is on screen the CRT is softened (engine v1.51: TYPEMAXX.crt)
-const SOFT_TUBE = { grille: 0, scanDepth: 0.06, chroma: 0.25, bar: 0, flicker: 0, grain: 0.006, noise: 0, vignette: 0.32, halo: 0.05 };
+// the trailer is a lot of light on black: half the tube's gain, no halo. The game keeps a little more.
+const SOFT_TUBE = { grille: 0, scanDepth: 0.06, chroma: 0.25, bar: 0, flicker: 0, grain: 0.006, noise: 0, vignette: 0.32, halo: 0, gain: 0.67 };
+const SOFT_TUBE_GAME = { grille: 0, scanDepth: 0.06, chroma: 0.25, bar: 0, flicker: 0, grain: 0.006, noise: 0, vignette: 0.32, halo: 0.03, gain: 1.0 };
 function softTube(on) {
   if (typeof window === 'undefined' || !window.TYPEMAXX) return;
-  if (on) { if (window.TYPEMAXX.crt !== SOFT_TUBE) window.TYPEMAXX.crt = SOFT_TUBE; }
-  else if (window.TYPEMAXX.crt === SOFT_TUBE) window.TYPEMAXX.crt = null;
+  const look = G.active ? SOFT_TUBE_GAME : SOFT_TUBE;
+  if (on) { if (window.TYPEMAXX.crt !== look) window.TYPEMAXX.crt = look; }
+  else if (window.TYPEMAXX.crt === SOFT_TUBE || window.TYPEMAXX.crt === SOFT_TUBE_GAME) window.TYPEMAXX.crt = null;
 }
 let showLast = 0, showWatch = null, showLap = null, showPrev = 0, showSim = null, showT = -1;
 function showcaseAudio(t) {
@@ -1347,13 +1350,13 @@ function bigSprite(name, key, cx, cy, scale, flip, alpha) {
   // light bleeds past its pixels
   ctx.globalCompositeOperation = 'lighter';
   ctx.imageSmoothingEnabled = true;
-  ctx.globalAlpha = (alpha == null ? 1 : alpha) * 0.55;
+  ctx.globalAlpha = (alpha == null ? 1 : alpha) * 0.18;
   for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) ctx.drawImage(G.glows[key] || atlasFor(key), sx, sy, w, h, -ox + dx * 1.2, -oy + dy * 1.2, w, h);
   ctx.restore();
 }
 function glowLine(x0, y0, x1, y1, col, w, a) {
   ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'round';
-  for (const [lw, la] of [[w * 5, 0.12], [w * 2.2, 0.35], [w, 1]]) {
+  for (const [lw, la] of [[w * 5, 0.05], [w * 2.2, 0.16], [w, 0.8]]) {
     ctx.strokeStyle = css(la === 1 ? [Math.min(255, col[0] * 0.4 + 170), Math.min(255, col[1] * 0.4 + 170), Math.min(255, col[2] * 0.4 + 170)] : col, la * (a == null ? 1 : a));
     ctx.lineWidth = lw; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
   }
@@ -1363,20 +1366,20 @@ function glowLine(x0, y0, x1, y1, col, w, a) {
 function rushGrid(horizon, speed, t, col, vx) {
   const g = ctx;
   const grd = g.createLinearGradient(0, horizon - 60, 0, LH);
-  grd.addColorStop(0, 'rgba(3,20,28,0)'); grd.addColorStop(0.25, 'rgba(6,34,44,0.9)'); grd.addColorStop(1, '#010306');
+  grd.addColorStop(0, 'rgba(3,20,28,0)'); grd.addColorStop(0.25, 'rgba(4,20,26,0.9)'); grd.addColorStop(1, '#010306');
   g.fillStyle = grd; g.fillRect(0, horizon - 60, LW, LH - horizon + 60);
   const cx = LW / 2 + (vx || 0);
   g.save(); g.globalCompositeOperation = 'lighter';
   for (let k = -16; k <= 16; k++) {
     const x = cx + k * 70;
-    g.strokeStyle = css(col, 0.28); g.lineWidth = 1;
+    g.strokeStyle = css(col, 0.16); g.lineWidth = 1;
     g.beginPath(); g.moveTo(cx + k * 3, horizon); g.lineTo(x, LH); g.stroke();
   }
   for (let j = 0; j < 14; j++) {
     const z = ((j - (t * speed) % 1) + 14) % 14 + 0.6;
     const y = horizon + 180 / z;
     if (y > LH) continue;
-    g.strokeStyle = css(col, Math.min(0.55, 0.9 / z));
+    g.strokeStyle = css(col, Math.min(0.3, 0.5 / z));
     g.beginPath(); g.moveTo(0, y); g.lineTo(LW, y); g.stroke();
   }
   g.restore();
@@ -1389,7 +1392,7 @@ function streaks(t, col, count, dir) {
     const y = 60 + hash(i, 9) * 240;
     const len = 30 + hash(i, 10) * 90;
     const x = (((hash(i, 11) * LW - t * (500 + hash(i, 12) * 600) * dir) % (LW + len)) + LW + len) % (LW + len) - len;
-    ctx.fillStyle = css(col, 0.25 + 0.4 * hash(i, 13));
+    ctx.fillStyle = css(col, 0.12 + 0.2 * hash(i, 13));
     ctx.fillRect(Math.round(x), Math.round(y), Math.round(len), 1);
   }
   ctx.restore();
@@ -1414,8 +1417,8 @@ function drawCinematic(t) {
     // the ring powers on from one point, sweeping round
     const a0 = -Math.PI / 2 + lt * 2.2;
     ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'round';
-    for (const [lw, la] of [[34, 0.1], [16, 0.3], [7, 1]]) {
-      ctx.strokeStyle = la === 1 ? 'rgb(210,250,255)' : css(C, la);
+    for (const [lw, la] of [[34, 0.05], [16, 0.15], [7, 0.8]]) {
+      ctx.strokeStyle = la === 0.8 ? 'rgba(210,250,255,0.8)' : css(C, la);
       ctx.lineWidth = lw; ctx.beginPath(); ctx.arc(cx, cy, R - 12, a0, a0 + TAU * on); ctx.stroke();
     }
     // ticks racing round the ring
@@ -1440,7 +1443,7 @@ function drawCinematic(t) {
     ctx.save(); ctx.globalAlpha = 0.18 * on; ctx.translate(0, (cy + R + 22) * 2); ctx.scale(1, -1);
     ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = css(C); ctx.lineWidth = 10;
     ctx.beginPath(); ctx.arc(cx, cy, R - 12, 0, TAU); ctx.stroke(); ctx.restore();
-    if (u < 0.08) rect(0, 0, LW, LH, [255, 255, 255], (0.08 - u) / 0.08 * 0.8 * on);
+    if (u < 0.08) rect(0, 0, LW, LH, [255, 255, 255], (0.08 - u) / 0.08 * 0.4 * on);
     streaks(lt, C, Math.floor(20 * on), 1);
   }
 
@@ -1456,7 +1459,7 @@ function drawCinematic(t) {
     // the rider's own wall of light trailing off screen
     if (leap) rect(0, 0, LW, LH, [0, 0, 0], 0.35);
     bigSprite(`runner_02_${frame}`, 'player', x, y, scale, false);
-    if (u > 0.6 && u < 0.66) rect(0, 0, LW, LH, [220, 250, 255], 0.55);
+    if (u > 0.6 && u < 0.66) rect(0, 0, LW, LH, [220, 250, 255], 0.28);
   }
 
   if (shot === 2) {
@@ -1511,7 +1514,7 @@ function drawCinematic(t) {
     else {
       const f = Math.min(11, Math.floor((u - 0.62) / 0.38 * 12));
       bigSprite(`derez_06_${String(f).padStart(2, '0')}`, 'hunter', 205, 247, 2, false);
-      if (u < 0.7) rect(0, 0, LW, LH, [255, 200, 150], (0.7 - u) / 0.08 * 0.7);
+      if (u < 0.7) rect(0, 0, LW, LH, [255, 200, 150], (0.7 - u) / 0.08 * 0.35);
     }
     ctx.restore();
   }
@@ -1535,12 +1538,12 @@ function drawCinematic(t) {
     }
     streaks(lt, [220, 245, 255], 30, -1);
     // the flash that loops back to the ignition
-    if (u > 0.9) rect(0, 0, LW, LH, [255, 255, 255], (u - 0.9) / 0.1);
+    if (u > 0.9) rect(0, 0, LW, LH, [255, 255, 255], 0.5 * (u - 0.9) / 0.1);
   }
 
   // jump-cut flashes and the letterbox
   const cutU = lt % 2;
-  if (cutU < 0.07 && lt > 0.5) rect(0, 0, LW, LH, [230, 250, 255], 0.6 * (1 - cutU / 0.07));
+  if (cutU < 0.07 && lt > 0.5) rect(0, 0, LW, LH, [230, 250, 255], 0.3 * (1 - cutU / 0.07));
   rect(0, 0, LW, 26, [0, 0, 0]); rect(0, LH - 26, LW, 26, [0, 0, 0]);
   // the first half second of a fresh showing opens from black
   if (t < 0.5) rect(0, 0, LW, LH, [0, 0, 0], 1 - t / 0.5);
