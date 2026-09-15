@@ -1,0 +1,30 @@
+const MIX = {};
+const mix = (group, names, vol, max, gap, prio, duck) => { for (const n of names.split(' ')) MIX[n] = { group, vol, max, gap, prio, duck: duck || 0 }; };
+// Nothing fires ON a keystroke: the stone keyboard clicks. A mistake's creak is
+// delayed by the game and low enough to sit under the click.
+mix('ui',     'ui_move ui_back',                          0.45, 1, 0.04, 1);
+mix('ui',     'ui_select coin',                           0.55, 1, 0.08, 2);
+mix('ui',     'store_bell',                               0.5, 1, 1.0, 2);
+mix('type',   'creak',                                    0.28, 1, 0.18, 0);
+mix('type',   'jolt',                                     0.3, 1, 0.15, 0);
+mix('foley',  'whip hooves rope mud',                     0.45, 1, 0.2, 1);
+mix('foley',  'hammer',                                   0.55, 1, 0.3, 1);
+mix('world',  'wheels_break',                             0.75, 1, 0.8, 3, 0.3);
+mix('world',  'moo',                                      0.5, 1, 2.5, 1);
+mix('world',  'oxbell',                                   0.35, 1, 0.6, 0);
+mix('combat', 'shot',                                     0.55, 3, 0.05, 1);
+mix('combat', 'shot_miss animal_fall bolt',               0.5, 2, 0.08, 1);
+mix('world',  'stag',                                     0.6, 1, 3.0, 3);
+mix('world',  'splash',                                   0.6, 2, 0.15, 2);
+mix('big',    'thunder',                                  0.8, 1, 2.0, 3, 0.4);
+mix('world',  'river_loop rain_loop wind_loop crickets_loop fire_loop surf_loop', 0.3, 1, 0, 0);
+mix('world',  'birds owl gull',                           0.35, 1, 1.5, 0);
+mix('world',  'howl rattle',                              0.55, 1, 1.5, 2);
+mix('big',    'stampede',                                 0.8, 1, 3.0, 3, 0.3);
+mix('combat', 'cough hurt',                               0.55, 1, 0.4, 2);
+mix('world',  'heal pickup cheer',                        0.55, 1, 0.3, 2);
+mix('big',    'shovel',                                   0.6, 1, 2.0, 3, 0.2);
+mix('type',   'carve',                                    0.3, 2, 0.06, 0);
+mix('big',    'stone_wake',                               0.8, 1, 2.0, 3, 0.5);
+mix('big',    'arrive',                                   0.6, 1, 1.5, 3);
+mix('big',    'fire_whoosh',                              0.7, 1, 2.0, 3, 0.3);
