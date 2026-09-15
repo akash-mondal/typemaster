@@ -1859,6 +1859,44 @@ function whiteRoom(canvas){
   return { render(){ paint(); }, resize(){ paint(); }, dispose(){} };
 }
 
+// Recently shown backdrops are PARKED rather than destroyed: they stop
+// rendering, keep their scene, textures and compiled shaders, and come back
+// instantly. A page that goes launch -> game select -> launch -> game select
+// builds each backdrop once, not on every trip. At most BG_PARK_MAX wait parked;
+// the oldest beyond that is destroyed and its GPU context released.
+// A spec with { cache: false } is never parked.
+const BG_PARK_MAX = 2;
+const bgParked = [];
+const bgBuilding = new Map();              // key -> promise of a layer being built
+const bgKey = spec => spec.factory || (spec.module + '#' + (spec.export || 'default'));
+function bgRetire(layer){
+  if(!layer || layer.destroyed) return;
+  if(bgParked.includes(layer)) return;
+  if(layer.spec && layer.spec.cache === false){ bgDestroy(layer); return; }
+  layer.parkedAt = performance.now();
+  bgParked.push(layer);
+  while(bgParked.length > BG_PARK_MAX) bgDestroy(bgParked.shift());
+}
+function bgUnpark(spec){
+  const k = bgKey(spec);
+  const i = bgParked.findIndex(L => bgKey(L.spec) === k && !L.destroyed);
+  if(i < 0) return null;
+  const L = bgParked.splice(i, 1)[0];
+  L.spec = Object.assign({}, L.spec, spec);
+  try { if(L.inst && L.inst.resize) L.inst.resize(); } catch(e){}
+  return L;
+}
+// one build per backdrop at a time, however many callers ask for it
+function bgObtain(spec){
+  const parked = bgUnpark(spec);
+  if(parked) return Promise.resolve(parked);
+  const k = bgKey(spec);
+  if(bgBuilding.has(k)) return bgBuilding.get(k);
+  const p = bgCreate(spec).finally(() => bgBuilding.delete(k));
+  bgBuilding.set(k, p);
+  return p;
+}
+
 async function bgCreate(spec){
   let make = spec.factory;
   const canvas = bgMakeCanvas();
@@ -1947,7 +1985,7 @@ function stepBackground(now, dt){
     bgCtx.drawImage(bgLayers[1].canvas, 0, 0, w, h);
     bgCtx.globalAlpha = 1;
     if(bgFadeT >= 1){
-      bgDestroy(bgLayers[0]);            // the old one stops running here
+      bgRetire(bgLayers[0]);             // the old one stops running here, parked for next time
       bgLayers = [bgLayers[1]];
       bgFadeT = 0;
     }
@@ -2007,7 +2045,25 @@ if(typeof window !== 'undefined'){
       return false;
     });
   let bgGen = 0;
-  const sameBg = (a, b) => a && b && (a.factory ? a.factory === b.factory : (!b.factory && a.module === b.module && a.export === b.export));
+  const sameBg = (a, b) => a && b && bgKey(a) === bgKey(b);
+  // Build a backdrop ahead of time, without showing it: the scene is made, one
+  // frame is drawn so its shaders compile and its textures upload, then it waits
+  // parked. Call it early for the backdrops the page will switch to, e.g.
+  //   TYPEMAXX_PRELOAD_BACKGROUND({ module: '/temple.js', export: 'makeTemple' })
+  window.TYPEMAXX_PRELOAD_BACKGROUND = async spec => {
+    try {
+      spec = bgSpec(spec);
+      if(bgLayers.some(L => sameBg(L.spec, spec)) || bgParked.some(L => sameBg(L.spec, spec))) return true;
+      const layer = await bgObtain(spec);
+      if(bgLayers.includes(layer)) return true;
+      try { layer.inst.render(performance.now()); } catch(e){}
+      bgRetire(layer);
+      return true;
+    } catch(e){
+      showErr('preload background: ' + (e && (e.stack || e.message) || e));
+      return false;
+    }
+  };
   const setBackground = async (spec, fadeSeconds) => {
     if(spec) spec = bgSpec(spec);
     // the same background already showing, or already on its way in: nothing to rebuild
@@ -2018,19 +2074,22 @@ if(typeof window !== 'undefined'){
     }
     const gen = ++bgGen;
     bgFadeDur = (fadeSeconds == null) ? 0.8 : Math.max(0, fadeSeconds);
-    if(bgLayers[1]){ bgDestroy(bgLayers[1]); bgLayers.length = 1; bgFadeT = 0; }
+    if(bgLayers[1]){ bgRetire(bgLayers[1]); bgLayers.length = 1; bgFadeT = 0; }
     if(!spec){
-      bgLayers.forEach(bgDestroy); bgLayers = [];
+      bgLayers.forEach(bgRetire); bgLayers = [];
       if(bgQuad) bgQuad.visible = false;
       if(bgTexture){ bgTexture.dispose(); bgTexture = null; }
       return true;
     }
     if(bgQuad) bgQuad.visible = true;
-    const layer = await bgCreate(spec);
-    // a newer call arrived while this one was building: it wins, this one goes
-    if(gen !== bgGen){ bgDestroy(layer); return false; }
+    const layer = await bgObtain(spec);
+    // a preload that shared this build may have parked it meanwhile: take it back
+    const pi = bgParked.indexOf(layer);
+    if(pi >= 0) bgParked.splice(pi, 1);
+    // a newer call arrived while this one was building: it wins, this one waits parked
+    if(gen !== bgGen){ bgRetire(layer); return false; }
     if(!bgLayers.length || bgFadeDur === 0){
-      bgLayers.forEach(bgDestroy);
+      bgLayers.forEach(bgRetire);
       bgLayers = [layer];
     } else {
       bgLayers[1] = layer; bgFadeT = 0;
