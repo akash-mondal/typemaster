@@ -1014,6 +1014,17 @@ function embers(x, y, n, colour, up) {
   }
 }
 function flash(css, dur) { S.flash = { css, t0: S.t, dur }; }
+// steel on steel: a spray of streaks thrown away from the contact
+function sparkBurst(x, y, n, dirX) {
+  const R = S.R;
+  for (let i = 0; i < n; i++) {
+    const a = (hash(Math.floor(S.t * 997) + i, 13) - 0.5) * Math.PI * 1.4 + (dirX < 0 ? Math.PI : 0);
+    const sp = 60 + hash(i, Math.floor(S.t * 331)) * 140;
+    R.fx.push({ streak: true, x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30, life: 0.18 + hash(i, 17) * 0.3, t0: S.t,
+                col: i % 4 === 0 ? '#FFFFFF' : i % 3 === 0 ? '#FFE9A8' : '#F4B93D' });
+  }
+  R.fx.push({ dot: true, x, y, vx: 0, vy: 0, life: 0.08, t0: S.t, col: '#FFFFFF', big: 5 });
+}
 function shake(amount) { S.shake = Math.max(S.shake, amount); }
 
 function setTier() {
@@ -1367,9 +1378,19 @@ function resolveHazard(res) {
   const nx = R.drawX, fy = ninjaY();
   if (e && e.state === 'attacking') e.state = 'alive';
   if (res === true) {
-    if (hz.kind === 'arrow') {
+    if (hz.kind === 'shuriken') {
+      // the blade meets the star and throws it off
+      if (!o.tower) R.anim = { clip: 'ninja_strike', t0: S.t - 0.08, dur: 0.28 };
+      const cx = nx + (o.tower ? 6 : 17), cy = fy - 23;
+      sparkBurst(cx, cy, 22, -1);
+      addFx('spark', cx, cy);
+      R.hitstop = Math.max(R.hitstop, 0.05);
+      shake(1.5);
+      flash('rgba(255,244,210,0.22)', 0.1);
+    } else if (hz.kind === 'arrow') {
       R.anim = { clip: 'ninja_block', t0: S.t, dur: 0.34 };
       addFx('spark', nx + 10, fy - 22);
+      sparkBurst(nx + 12, fy - 22, 14, -1);
     } else if (hz.kind === 'icicle') {
       R.anim = { clip: o.tower ? vclip('ninja_hang', o.world) : 'ninja_slide', t0: S.t, dur: 0.5 };
       embers(nx + 6, fy - 2, 10, COL.ice, 20);
@@ -1382,6 +1403,7 @@ function resolveHazard(res) {
   } else if (res === 'catch' || res === 'parry') {
     R.anim = { clip: res === 'catch' ? 'ninja_catch' : 'ninja_block', t0: S.t, dur: 0.36 };
     addFx('spark', nx + 10, fy - 22);
+    if (res === 'parry') sparkBurst(nx + 12, fy - 22, 18, 1);
     if (res === 'catch') R.catches++; else R.parries++;
     R.segs = Math.min(4, R.segs + 1);
     R.score += 400;
@@ -1736,10 +1758,11 @@ function updateRun(dt) {
 
   for (let i = R.fx.length - 1; i >= 0; i--) {
     const f = R.fx[i];
-    if (f.dot) {
+    if (f.dot || f.streak) {
       const age = S.t - f.t0;
       if (age > f.life) { R.fx.splice(i, 1); continue; }
-      f.x += f.vx * dt; f.y += f.vy * dt; f.vy += 50 * dt;
+      f.x += f.vx * dt; f.y += f.vy * dt; f.vy += (f.streak ? 260 : 50) * dt;
+      if (f.streak) { f.vx *= 1 - dt * 3; }
     } else {
       const c = S.M.clips[f.clip];
       const dur = c ? c.frames.length * c.ms / 1000 : 0.3;
@@ -2799,8 +2822,14 @@ function drawWorld(still, noHud) {
   drawProjectile();
 
   for (const f of R.fx) {
+    if (f.streak) {
+      const a = 1 - (tt - f.t0) / f.life;
+      drawLine(f.x - cam, f.y, f.x - cam - f.vx * 0.03, f.y - f.vy * 0.03, a > 0.35 ? f.col : '#8A5A2A');
+      continue;
+    }
     if (f.dot) {
       const age = tt - f.t0, a = 1 - age / f.life;
+      if (f.big) { const r = Math.round(f.big * (1 - age / f.life)); rect(f.x - cam - r, f.y - 1, r * 2 + 1, 3, '#FFFFFF'); rect(f.x - cam - 1, f.y - r, 3, r * 2 + 1, '#FFFFFF'); continue; }
       rect(f.x - cam, f.y, 1, 1, a > 0.5 ? f.col : COL.shade);
       continue;
     }
@@ -3064,7 +3093,7 @@ function drawProjectile() {
     const age = S.t - h.doneT;
     if (age > 0.6) continue;
     const tx = nx + 4, ty = ninjaY() - 20;
-    if (h.kind === 'shuriken') put('shuriken', frameOf('shuriken', S.t), tx - age * 420, ty - 6);
+    if (h.kind === 'shuriken') put('shuriken', Math.floor(age * 40), tx + 13 + age * 230, ty - 4 - age * 280 + age * age * 340);
     else if (h.kind === 'arrow') blit('arrow', tx + 6 - age * 30, ty + age * age * 220);
     else if (h.kind === 'crate') {
       const py = -R.camY - 8, px = tx + 8, a = -0.05 - age * 3, r = ty - 16 - py;
@@ -3450,19 +3479,37 @@ const SHOTS = [
     if (s > 0.7 && s < 1.25) { const u = (s - 0.7) / 0.55; put('shuriken', frameOf('shuriken', tt), lerp(kx - 8, nx - cam + 4, u), lerp(104, ny - 20, u)); }
     drawWeather('city', cam, tt, 1.4);
   } },
-  // 2. close up: the catch
+  // 2. close up: the deflect - the star meets the blade, sparks, it glances away
   { d: 0.8, cut: true, draw(s, tt) {
+    const HIT = 0.22;
+    // time slows for a beat after the contact
+    const k = s < HIT ? s : HIT + (s - HIT) * (s - HIT < 0.18 ? 0.3 : 1) - (s - HIT >= 0.18 ? 0.18 * 0.7 : 0);
     BACKDROP.city(90, tt);
-    rect(0, 0, LW, LH, 'rgba(10,6,20,0.45)');
-    speedLines(160, 120, tt, 40, 'rgba(232,244,236,0.55)');
-    zoomAt(160, 140, 2.6 + s * 0.5, () => {
+    rect(0, 0, LW, LH, 'rgba(10,6,20,0.5)');
+    speedLines(160, 120, tt, 40, 'rgba(232,244,236,0.5)');
+    const cx = 177, cy = 134;
+    zoomAt(160, 138, 2.5 + s * 0.4, () => {
       const B = fakeOpt(40, 260, 158, 'inn', 'city', '');
       drawRoof(B, 40, 158, 0);
-      put('ninja_catch', Math.min(1, s * 5), 160, 156);
-      if (s < 0.22) put('shuriken', frameOf('shuriken', tt), lerp(210, 172, s / 0.22), 136);
-      else { put('shuriken', frameOf('shuriken', tt), 172, 136); if (s < 0.4) put('spark', (s - 0.22) * 18, 172, 136); }
+      const fi = k < HIT - 0.1 ? 0 : Math.min(3, (k - (HIT - 0.1)) / 0.045);
+      put('ninja_strike', fi, 160, 156);
+      if (k < HIT) put('shuriken', Math.floor(tt * 30), lerp(236, cx, k / HIT), lerp(128, cy, k / HIT));
+      else {
+        const a = k - HIT;
+        put('shuriken', Math.floor(tt * 50), cx + a * 180, cy - a * 220 + a * a * 260);
+        // the streaks, thrown off the edge of the blade
+        for (let i = 0; i < 26; i++) {
+          const ang = -Math.PI * 0.95 + hash(i, 3) * Math.PI * 1.3;
+          const sp = 40 + hash(i, 4) * 110, life = 0.2 + hash(i, 5) * 0.25;
+          if (a > life) continue;
+          const px = cx + Math.cos(ang) * sp * a, py = cy + Math.sin(ang) * sp * a + 120 * a * a;
+          drawLine(px, py, px - Math.cos(ang) * 5, py - Math.sin(ang) * 5, i % 4 === 0 ? '#FFFFFF' : i % 3 ? '#F4B93D' : '#FFE9A8');
+        }
+        if (a < 0.06) { const r = Math.round(7 * (1 - a / 0.06)); rect(cx - r, cy - 1, r * 2 + 1, 3, '#FFFFFF'); rect(cx - 1, cy - r, 3, r * 2 + 1, '#FFFFFF'); }
+        if (a < 0.14) put('spark', a * 20, cx, cy);
+      }
     });
-    if (s > 0.2 && s < 0.28) rect(0, 0, LW, LH, 'rgba(255,255,255,0.6)');
+    if (s > HIT && s < HIT + 0.05) rect(0, 0, LW, LH, 'rgba(255,248,220,0.55)');
   } },
   // 3. the Snow Pass: over a chasm on the hook
   { d: 1.6, draw(s, tt) {
