@@ -359,6 +359,8 @@ export function createCrtTerminal({ width = 1024, height = 768,
     // Named setSurface, not setStyle: there is already an internal setStyle in
     // this file for text colour, and two things with one name in one closure is
     // a bug waiting to be written.
+    // the live style, read-only, so a caller can remember what to put back
+    get style(){ return style; },
     setSurface(patch){
       if(!patch) return;
       Object.assign(style, patch);

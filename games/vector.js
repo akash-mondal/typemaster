@@ -1303,6 +1303,14 @@ function buildIcon() {
 // intro music's bar lines) to a different rider. The action rides in the band between the
 // select screen's logo and its tiles.
 const SHOW_LOOP = 10, SHOW_INTRO = 1.5;
+// VECTOR is fine lines of light on black: the tube's grille and rolling bar turn that into streaks,
+// so while it is on screen the CRT is softened (engine v1.51: TYPEMAXX.crt)
+const SOFT_TUBE = { grille: 0, scanDepth: 0.06, chroma: 0.25, bar: 0, flicker: 0, grain: 0.006, noise: 0, vignette: 0.32, halo: 0.05 };
+function softTube(on) {
+  if (typeof window === 'undefined' || !window.TYPEMAXX) return;
+  if (on) { if (window.TYPEMAXX.crt !== SOFT_TUBE) window.TYPEMAXX.crt = SOFT_TUBE; }
+  else if (window.TYPEMAXX.crt === SOFT_TUBE) window.TYPEMAXX.crt = null;
+}
 let showLast = 0, showWatch = null, showLap = null, showPrev = 0, showSim = null, showT = -1;
 function showcaseAudio(t) {
   const nowMs = performance.now();
@@ -1319,41 +1327,225 @@ function showcaseAudio(t) {
     const phase = p ? ((p.step / 16) * (60 / p.bpm * 4)) % SHOW_LOOP : 0;
     if (p && Math.min(phase, SHOW_LOOP - phase) > 0.3) MUS.play('intro', { now: true, restart: true, fade: 0.1, at: t % SHOW_LOOP });
   }
-  if (!showWatch) showWatch = setInterval(() => { if (performance.now() - showLast > 250) { if (MUS.current === 'intro') MUS.stop(0.3); clearInterval(showWatch); showWatch = null; } }, 100);
+  if (!showWatch) showWatch = setInterval(() => { if (performance.now() - showLast > 250) { if (MUS.current === 'intro') MUS.stop(0.3); if (!G.active) softTube(false); clearInterval(showWatch); showWatch = null; } }, 100);
 }
 if (typeof window !== 'undefined') {
   window.addEventListener('typemaxx:showcase', e => { if (e.detail === 'vector' || G.active) return; if (MUS.current === 'intro') MUS.stop(0.3); });
 }
-function drawShowcase(t, dt) {
-  const lt = ((t % SHOW_LOOP) + SHOW_LOOP) % SHOW_LOOP;
-  // restart the match at each loop so the trailer repeats
-  if (!showSim || lt < showT - 1) { showSim = demoSector(23); for (let k = 0; k < 90; k++) { stepDemo(showSim, 1 / 30); } }
-  showT = lt;
-  stepDemo(showSim, dt);
-  const S = showSim;
-  const shot = Math.min(4, Math.floor(lt / 2));
-  const alive = S.bikes.filter(b => b.alive);
-  const focus = alive.length ? alive[shot % alive.length] : S.bikes[0];
-  const [fx, fy] = bikePos(focus);
-  const lx = fx + DX[focus.d] * 1.2, ly = fy + DY[focus.d] * 1.2;
-  setZoom(1);
-  G.camTarget = [lx - 1.6, ly + 1.6, bikeLevel(focus, S)];   // the rider sits just below centre: the clear band under the logo
-  if (lt % 2 < dt * 1.5 || G.cam.cx == null) { G.cam.cx = G.camTarget[0]; G.cam.cy = G.camTarget[1]; G.cam.cl = G.camTarget[2]; }
-  updateCamera(S, dt);
-  drawScene(S, dt);
-  if (lt % 2 < 0.1 && lt > 1) rect(0, 0, LW, LH, COL.white, 0.5 * (1 - (lt % 2) / 0.1));
-  if (t < SHOW_INTRO) {
-    // the intro: the grid draws itself outward from a point of light
-    const u = t / SHOW_INTRO;
-    const r = easeOut(clamp(u * 1.2, 0, 1)) * 420;
-    ctx.save();
-    ctx.fillStyle = '#03040b';
-    ctx.beginPath(); ctx.rect(0, 0, LW, LH); ctx.ellipse(LW / 2, LH / 2 + 10, r, r * 0.5, 0, 0, TAU); ctx.fill('evenodd');
-    ctx.restore();
-    const core = clamp(1 - u * 1.5, 0, 1);
-    rect(LW / 2 - 60 * (1 - core), LH / 2 + 10, 120 * (1 - core) + 2, 1, COL.player, core + 0.2);
-  }
+// ---------------------------------------------------------------- the cinematic
+// Five shots cut on the intro music's bar lines (every 2 s), letterboxed, with flashes on the cuts.
+// Everything is drawn from the sprite atlas at big pixel scales, plus a few procedural light shapes.
+function bigSprite(name, key, cx, cy, scale, flip, alpha) {
+  const s = G.M.sprites[name]; if (!s) return;
+  const [sx, sy, w, h, ox, oy] = s;
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  if (alpha != null) ctx.globalAlpha = alpha;
+  ctx.translate(Math.round(cx), Math.round(cy));
+  ctx.scale(flip ? -scale : scale, scale);
+  ctx.drawImage(atlasFor(key), sx, sy, w, h, -ox, -oy, w, h);
+  // light bleeds past its pixels
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.imageSmoothingEnabled = true;
+  ctx.globalAlpha = (alpha == null ? 1 : alpha) * 0.55;
+  for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) ctx.drawImage(G.glows[key] || atlasFor(key), sx, sy, w, h, -ox + dx * 1.2, -oy + dy * 1.2, w, h);
+  ctx.restore();
 }
+function glowLine(x0, y0, x1, y1, col, w, a) {
+  ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'round';
+  for (const [lw, la] of [[w * 5, 0.12], [w * 2.2, 0.35], [w, 1]]) {
+    ctx.strokeStyle = css(la === 1 ? [Math.min(255, col[0] * 0.4 + 170), Math.min(255, col[1] * 0.4 + 170), Math.min(255, col[2] * 0.4 + 170)] : col, la * (a == null ? 1 : a));
+    ctx.lineWidth = lw; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+  }
+  ctx.restore();
+}
+// a floor of black glass rushing toward the camera under a horizon
+function rushGrid(horizon, speed, t, col, vx) {
+  const g = ctx;
+  const grd = g.createLinearGradient(0, horizon - 60, 0, LH);
+  grd.addColorStop(0, 'rgba(3,20,28,0)'); grd.addColorStop(0.25, 'rgba(6,34,44,0.9)'); grd.addColorStop(1, '#010306');
+  g.fillStyle = grd; g.fillRect(0, horizon - 60, LW, LH - horizon + 60);
+  const cx = LW / 2 + (vx || 0);
+  g.save(); g.globalCompositeOperation = 'lighter';
+  for (let k = -16; k <= 16; k++) {
+    const x = cx + k * 70;
+    g.strokeStyle = css(col, 0.28); g.lineWidth = 1;
+    g.beginPath(); g.moveTo(cx + k * 3, horizon); g.lineTo(x, LH); g.stroke();
+  }
+  for (let j = 0; j < 14; j++) {
+    const z = ((j - (t * speed) % 1) + 14) % 14 + 0.6;
+    const y = horizon + 180 / z;
+    if (y > LH) continue;
+    g.strokeStyle = css(col, Math.min(0.55, 0.9 / z));
+    g.beginPath(); g.moveTo(0, y); g.lineTo(LW, y); g.stroke();
+  }
+  g.restore();
+  // a hard horizon line
+  glowLine(0, horizon, LW, horizon, col, 1, 0.5);
+}
+function streaks(t, col, count, dir) {
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < count; i++) {
+    const y = 60 + hash(i, 9) * 240;
+    const len = 30 + hash(i, 10) * 90;
+    const x = (((hash(i, 11) * LW - t * (500 + hash(i, 12) * 600) * dir) % (LW + len)) + LW + len) % (LW + len) - len;
+    ctx.fillStyle = css(col, 0.25 + 0.4 * hash(i, 13));
+    ctx.fillRect(Math.round(x), Math.round(y), Math.round(len), 1);
+  }
+  ctx.restore();
+}
+function drawCinematic(t) {
+  const lt = ((t % SHOW_LOOP) + SHOW_LOOP) % SHOW_LOOP;
+  const shot = Math.min(4, Math.floor(lt / 2));
+  const u = (lt - shot * 2) / 2;            // 0..1 within the shot
+  const C = COL.player, O = COL.hunter;
+  ctx.fillStyle = '#010206'; ctx.fillRect(0, 0, LW, LH);
+  const midY = 196;                           // the clear band between the select logo and its tiles
+
+  if (shot === 0) {
+    // IGNITION: an extreme close-up of a hubless wheel coming alive
+    const on = easeOut(clamp(u / 0.35, 0, 1));
+    const cx = 250 + u * 20, cy = midY + 10, R = 150 + u * 25;
+    ctx.fillStyle = '#05080f'; ctx.beginPath(); ctx.arc(cx, cy, R + 18, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#010205'; ctx.beginPath(); ctx.arc(cx, cy, R - 34, 0, TAU); ctx.fill();
+    // the sheen on the tyre
+    ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = 'rgba(220,235,255,0.25)'; ctx.lineWidth = 6;
+    ctx.beginPath(); ctx.arc(cx, cy, R + 8, -2.4, -1.5); ctx.stroke(); ctx.restore();
+    // the ring powers on from one point, sweeping round
+    const a0 = -Math.PI / 2 + lt * 2.2;
+    ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'round';
+    for (const [lw, la] of [[34, 0.1], [16, 0.3], [7, 1]]) {
+      ctx.strokeStyle = la === 1 ? 'rgb(210,250,255)' : css(C, la);
+      ctx.lineWidth = lw; ctx.beginPath(); ctx.arc(cx, cy, R - 12, a0, a0 + TAU * on); ctx.stroke();
+    }
+    // ticks racing round the ring
+    for (let k = 0; k < 6; k++) {
+      const a = a0 * 3 + k * TAU / 6;
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(cx, cy, R - 12, a, a + 0.08); ctx.stroke();
+    }
+    ctx.restore();
+    // the body of the bike sweeps in over the wheel, with its light line running on from the ring
+    ctx.fillStyle = '#04070d';
+    ctx.beginPath(); ctx.moveTo(-20, cy - R * 0.95); ctx.quadraticCurveTo(cx - R * 0.4, cy - R * 1.2, cx + R * 0.25, cy - R * 0.72);
+    ctx.lineTo(cx - R * 0.2, cy - R * 0.45); ctx.quadraticCurveTo(cx - R * 0.8, cy - R * 0.62, -20, cy - R * 0.4); ctx.closePath(); ctx.fill();
+    ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = 'rgba(235,245,255,0.35)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(-20, cy - R * 0.93); ctx.quadraticCurveTo(cx - R * 0.4, cy - R * 1.17, cx + R * 0.22, cy - R * 0.72); ctx.stroke(); ctx.restore();
+    const lineOn = clamp((u - 0.2) / 0.3, 0, 1);
+    if (lineOn > 0) {
+      const ex = lerp(cx - R * 0.55, -20, lineOn), ey = lerp(cy - R * 0.62, cy - R * 0.6, lineOn);
+      glowLine(cx - R * 0.55, cy - R * 0.62, ex, ey, C, 4, 1);
+    }
+    // reflection in the floor
+    ctx.save(); ctx.globalAlpha = 0.18 * on; ctx.translate(0, (cy + R + 22) * 2); ctx.scale(1, -1);
+    ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = css(C); ctx.lineWidth = 10;
+    ctx.beginPath(); ctx.arc(cx, cy, R - 12, 0, TAU); ctx.stroke(); ctx.restore();
+    if (u < 0.08) rect(0, 0, LW, LH, [255, 255, 255], (0.08 - u) / 0.08 * 0.8 * on);
+    streaks(lt, C, Math.floor(20 * on), 1);
+  }
+
+  if (shot === 1) {
+    // RIDER: a close run in slow motion, then a punch-in on the leap
+    rushGrid(150, 3.5, lt, C, -40);
+    streaks(lt, C, 26, 1);
+    const leap = u > 0.62;
+    const punch = leap ? 1.12 : 1;
+    const scale = 3.6 * punch;
+    const frame = leap ? (u > 0.78 ? 7 : 6) : Math.floor(lt * 9) % 6;
+    const x = 230 + (leap ? 10 : u * 24), y = midY + 88 - (leap ? Math.sin((u - 0.62) / 0.38 * Math.PI) * 22 : 0);
+    // the rider's own wall of light trailing off screen
+    if (leap) rect(0, 0, LW, LH, [0, 0, 0], 0.35);
+    bigSprite(`runner_02_${frame}`, 'player', x, y, scale, false);
+    if (u > 0.6 && u < 0.66) rect(0, 0, LW, LH, [220, 250, 255], 0.55);
+  }
+
+  if (shot === 2) {
+    // RIDE: tracking side-on with the bike; its wall unspools behind it
+    rushGrid(132, 7, lt, C, 0);
+    const scale = 3;
+    const bx = 280 + Math.sin(lt * 7) * 2, by = midY + 58 + Math.sin(lt * 23) * 1;
+    // the wall: a thick ribbon of light from the tail to the left edge, its reflection under it
+    const wallTop = by - 34, wallBot = by + 4, tail = bx - 70;
+    ctx.save();
+    const wg = ctx.createLinearGradient(0, wallTop, 0, wallBot);
+    wg.addColorStop(0, 'rgb(210,250,255)'); wg.addColorStop(0.12, css(C)); wg.addColorStop(1, css([C[0] * 0.45, C[1] * 0.45, C[2] * 0.45]));
+    ctx.fillStyle = wg; ctx.fillRect(0, wallTop, tail, wallBot - wallTop);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = css(C, 0.25); ctx.fillRect(0, wallTop - 6, tail, 6);
+    const rg = ctx.createLinearGradient(0, wallBot, 0, wallBot + 40);
+    rg.addColorStop(0, css(C, 0.35)); rg.addColorStop(1, css(C, 0));
+    ctx.fillStyle = rg; ctx.fillRect(0, wallBot, tail, 40);
+    ctx.restore();
+    const spin = Math.floor(lt * 30) % 3;
+    bigSprite(`rider_02_0_${spin}`, 'player', bx, by, scale, false);
+    // sparks off the rear wheel
+    for (let k = 0; k < 6; k++) { const a = hash(k, Math.floor(lt * 30)); rect(bx - 60 - a * 40, by - 2 - hash(k, 7 + Math.floor(lt * 30)) * 10, 2, 1, [220, 250, 255], 0.8); }
+    streaks(lt, [200, 240, 255], 18, 1);
+  }
+
+  if (shot === 3) {
+    // DUEL: high and wide; orange cuts across cyan's wall and shatters
+    setZoom(1);
+    const cam = [LW / 2, LH / 2];
+    ctx.save();
+    ctx.translate(0, 20);
+    // a patch of black glass grid seen from above
+    for (let k = -8; k <= 8; k++) {
+      const a = [cam[0] + k * 48 - 400, cam[1] + k * 24 + 200], b = [cam[0] + k * 48 + 400, cam[1] + k * 24 - 200];
+      const c2 = [cam[0] + k * 48 - 400, cam[1] - k * 24 - 200], d2 = [cam[0] + k * 48 + 400, cam[1] - k * 24 + 200];
+      ctx.strokeStyle = k % 4 === 0 ? 'rgba(80,190,225,0.45)' : 'rgba(50,120,150,0.12)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(...c2); ctx.lineTo(...d2); ctx.stroke();
+    }
+    const p = clamp(u / 0.62, 0, 1);
+    // cyan rides along +x (right-down); its wall is already down
+    const cyX = lerp(-40, 330, p), cyY = lerp(60, 245, p);
+    glowLine(-60, 50, cyX - 20, cyY - 10, C, 5, 1);
+    rect(-60, 0, 0, 0, C);
+    bigSprite('rider_00_0_' + (Math.floor(lt * 30) % 3), 'player', cyX, cyY, 2, false);
+    // orange rides along -y (right-up) toward cyan's line
+    const hit = u >= 0.62;
+    const orX = lerp(20, 205, p), orY = lerp(340, 247, p);
+    glowLine(-20, 360, orX - 20, orY + 10, O, 5, hit ? clamp(1 - (u - 0.62) / 0.3, 0, 1) : 1);
+    if (!hit) bigSprite('rider_12_0_' + (Math.floor(lt * 30) % 3), 'hunter', orX, orY, 2, false);
+    else {
+      const f = Math.min(11, Math.floor((u - 0.62) / 0.38 * 12));
+      bigSprite(`derez_06_${String(f).padStart(2, '0')}`, 'hunter', 205, 247, 2, false);
+      if (u < 0.7) rect(0, 0, LW, LH, [255, 200, 150], (0.7 - u) / 0.08 * 0.7);
+    }
+    ctx.restore();
+  }
+
+  if (shot === 4) {
+    // HORIZON: low and fast over the grid as walls of light rise and race away
+    rushGrid(166, 9, lt, C, Math.sin(lt * 0.8) * 30);
+    const rise = easeOut(clamp(u / 0.5, 0, 1));
+    const walls = [[-120, C], [-40, [240, 250, 255]], [60, O], [140, C]];
+    for (const [off, col] of walls) {
+      // each wall runs from the camera to the vanishing point
+      const x0 = LW / 2 + off * 3.2, x1 = LW / 2 + off * 0.12;
+      const h0 = 90 * rise, h1 = 6 * rise;
+      ctx.save();
+      ctx.beginPath(); ctx.moveTo(x0, LH); ctx.lineTo(x1, 168); ctx.lineTo(x1, 168 - h1); ctx.lineTo(x0, LH - h0); ctx.closePath();
+      const grd = ctx.createLinearGradient(x0, 0, x1, 0);
+      grd.addColorStop(0, css(col, 0.95)); grd.addColorStop(1, css(col, 0.35));
+      ctx.fillStyle = grd; ctx.fill();
+      ctx.restore();
+      glowLine(x0, LH - h0, x1, 168 - h1, [Math.min(255, col[0] * 0.4 + 170), Math.min(255, col[1] * 0.4 + 170), Math.min(255, col[2] * 0.4 + 170)], 2, 1);
+    }
+    streaks(lt, [220, 245, 255], 30, -1);
+    // the flash that loops back to the ignition
+    if (u > 0.9) rect(0, 0, LW, LH, [255, 255, 255], (u - 0.9) / 0.1);
+  }
+
+  // jump-cut flashes and the letterbox
+  const cutU = lt % 2;
+  if (cutU < 0.07 && lt > 0.5) rect(0, 0, LW, LH, [230, 250, 255], 0.6 * (1 - cutU / 0.07));
+  rect(0, 0, LW, 26, [0, 0, 0]); rect(0, LH - 26, LW, 26, [0, 0, 0]);
+  // the first half second of a fresh showing opens from black
+  if (t < 0.5) rect(0, 0, LW, LH, [0, 0, 0], 1 - t / 0.5);
+}
+function drawShowcase(t, dt) { drawCinematic(t); }
 function stepDemo(S, dt) {
   const P = Sim.player(S);
   if (P.alive && P.p < 0.05 && !P.holding) Sim._ai.think(S, P);
@@ -1369,6 +1561,7 @@ const SHOWCASE = {
   background(g, W, H, t, dim) {
     if (!G.ready) { if (!G.loading && !G.error) loadAssets(); g.fillStyle = '#03040b'; g.fillRect(0, 0, W, H); return; }
     showcaseAudio(t);
+    softTube(true);
     if (G.active) return;
     const prev = ctx, pt = G.t, pdt = G.dt;
     const dt = G.showLastT == null ? 1 / 60 : clamp(t - G.showLastT, 0, 0.05);
@@ -1434,6 +1627,7 @@ const VECTOR = {
   exit() {
     G.active = false;
     stopLoops();
+    softTube(false);
     if (typeof window !== 'undefined' && window.TYPEMAXX) window.TYPEMAXX.pixel = null;
     Audio.pause(false);
     Audio.stopAll(0.6);
@@ -1442,6 +1636,7 @@ const VECTOR = {
     if (typeof window !== 'undefined' && window.TYPEMAXX) {
       const p = window.TYPEMAXX.pixel;
       if (!p || p.width !== LW || p.height !== LH) window.TYPEMAXX.pixel = { width: LW, height: LH };
+      softTube(true);
     }
     const k = input && typeof input.pull === 'function' ? input.pull() : { chars: [], keys: [], back: 0, enter: 0 };
     const sec = typeof seconds === 'number' ? seconds : performance.now() / 1000;

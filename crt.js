@@ -216,6 +216,7 @@ export async function buildCRT({ url, parent }){
                                   getOptions: () => OPTIONS,
                                   style: SCENE.pixel ? pixelStyle(SCENE.pixel) : null });
   let pixelKey = SCENE.pixel ? (SCENE.pixel.width + 'x' + SCENE.pixel.height) : 'off';
+  let crtLookKey = 'off', crtBase = null;
   const phosphor = new THREE.CanvasTexture(crt.canvas);
   phosphor.colorSpace = THREE.SRGBColorSpace;
   // the offscreen canvas is top-origin and these UVs put v=0 at the bottom of
@@ -301,6 +302,18 @@ export async function buildCRT({ url, parent }){
       const p = SCENE.pixel;
       const key = p ? (p.width + 'x' + p.height) : 'off';
       if(key !== pixelKey){ pixelKey = key; crt.setSurface(pixelStyle(p)); }
+      // A game may soften the tube: TYPEMAXX.crt = { grille, scanDepth, chroma, bar, flicker,
+      // grain, vignette, halo, curve }. Clearing it (null) puts the authored look back.
+      const look = SCENE.crt;
+      const lookKey = look ? JSON.stringify(look) : 'off';
+      if(lookKey !== crtLookKey){
+        const keys = ['grille', 'scanDepth', 'chroma', 'bar', 'flicker', 'grain', 'noise', 'vignette', 'halo', 'curve', 'gain'];
+        if(!crtBase){ crtBase = {}; for(const k of keys) crtBase[k] = Array.isArray(crt.style[k]) ? crt.style[k].slice() : crt.style[k]; }
+        const next = {};
+        for(const k of keys) next[k] = look && look[k] !== undefined ? look[k] : crtBase[k];
+        crt.setSurface(next);
+        crtLookKey = lookKey;
+      }
 
       crt.render(now); phosphor.needsUpdate = true;
       if(bodyMat && bodyT < 1){
