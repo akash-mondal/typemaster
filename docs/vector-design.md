@@ -52,7 +52,7 @@ An isometric light-cycle game driven by typing. Tile 4 of TYPEMAXX (RGB keyboard
 
 ## 5. Energy and power cells
 - **Energy** (0–100) comes from grinding, words (+4 each, +8 when flawless) and seals (+30).
-  - When full, your next word turns gold, an **ability word** such as `pulse`, `derez` or `phase`.
+  - When full, your next word turns gold, an **ability word** such as `pulse`, `shatter` or `phase`.
   - Finish it without a typo to fire a **Pulse**: a ring that knocks every nearby bike off its line (they must turn at once) and wipes wall cells within 3 cells.
 - **Power cells** spawn on free cells every 12–18 s, at most 2 on the board. You carry one; a pickup replaces what you hold.
 

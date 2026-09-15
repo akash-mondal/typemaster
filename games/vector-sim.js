@@ -47,10 +47,10 @@ export const T = {
   deadWallFade: 0.6,
 };
 export const POWERS = ['shield', 'lance', 'spike', 'phase', 'surge', 'reset'];
-export const ABILITY_WORDS = ['pulse', 'derez', 'phase', 'surge', 'vector', 'cipher', 'kernel', 'overdrive'];
+export const ABILITY_WORDS = ['pulse', 'shatter', 'phase', 'surge', 'vector', 'cipher', 'kernel', 'overdrive'];
 const THEME = ['grid', 'pulse', 'vector', 'cipher', 'kernel', 'signal', 'binary', 'circuit', 'neon', 'volt', 'lumen', 'photon', 'sector', 'daemon',
   'packet', 'buffer', 'matrix', 'render', 'raster', 'pixel', 'syntax', 'socket', 'proxy', 'router', 'codec', 'glyph', 'orbit', 'quasar', 'prism',
-  'laser', 'drive', 'cycle', 'spark', 'trace', 'lattice', 'voltage', 'current', 'rezzed', 'program', 'compile', 'execute', 'overflow', 'firewall'];
+  'laser', 'drive', 'cycle', 'spark', 'trace', 'lattice', 'voltage', 'current', 'wired', 'program', 'compile', 'execute', 'overflow', 'firewall'];
 
 export const RIVALS = {
   drone: { colour: 'drone', speed: 0.85, trail: 0.6, look: 3, from: 1 },

@@ -756,7 +756,7 @@ function handleEvents(S) {
         burst(sx + G.cam.x, sy + G.cam.y - 10, key, 40, 90);
         ring(sx + G.cam.x, sy + G.cam.y, key, 60, 0.5);
         SND('derez', { vol: b.kind === 'player' ? 0.9 : 0.6 });
-        if (b.kind === 'player') { Audio.sting('core_lost'); G.cam.shake = 10; G.slow = 0.5; G.flash = 0.5; toast('DEREZZED', { dur: 1.4, scale: 3, y: 100, col: COL.red, sub: S.run.cores > 0 ? S.run.cores + ' CORES LEFT' : '' }); }
+        if (b.kind === 'player') { Audio.sting('core_lost'); G.cam.shake = 10; G.slow = 0.5; G.flash = 0.5; toast('SHATTERED', { dur: 1.4, scale: 3, y: 100, col: COL.red, sub: S.run.cores > 0 ? S.run.cores + ' CORES LEFT' : '' }); }
         else { Audio.sting('derez_rival'); G.cam.shake = Math.max(G.cam.shake, 4); }
         break;
       }
@@ -1003,10 +1003,10 @@ function drawResults(dt) {
   updateCamera(S, dt * 0.3, 0);
   drawScene(S, dt, { bloom: 0.6 });
   rect(0, 0, LW, LH, COL.ink, 0.7);
-  glowText('END OF LINE', LW / 2, 40, COL.red, 3);
+  glowText('SIGNAL LOST', LW / 2, 40, COL.red, 3);
   const st = run.stats;
   const acc = st.letters ? Math.round(100 * (st.letters - st.typos) / st.letters) : 100;
-  const rows = [['SCORE', run.score], ['SECTOR', run.sector], ['DEREZZED', st.derez], ['SEALS', st.seals], ['ANCHORS', st.bosses ? st.bosses + ' OVERSEERS' : '0'], ['WORDS', st.words], ['BEST STREAK', st.best], ['ACCURACY', acc + '%']];
+  const rows = [['SCORE', run.score], ['SECTOR', run.sector], ['SHATTERED', st.derez], ['SEALS', st.seals], ['ANCHORS', st.bosses ? st.bosses + ' OVERSEERS' : '0'], ['WORDS', st.words], ['BEST STREAK', st.best], ['ACCURACY', acc + '%']];
   rows.forEach(([a, b], i) => { textR(a, LW / 2 - 8, 100 + i * 20, COL.dim); text(String(b), LW / 2 + 8, 100 + i * 20, COL.white); });
   ['NEW RUN', 'MENU'].forEach((m, i) => { const on = i === G.sel; if (on) panel(LW / 2 - 60, 276 + i * 24, 120, 20, 1); textC(m, LW / 2, 280 + i * 24, on ? COL.white : COL.dim); });
   if (run.score >= G.best && run.score > 0) textC('best this visit', LW / 2, 324, COL.gold);
