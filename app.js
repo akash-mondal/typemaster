@@ -873,7 +873,8 @@ function stepRainAmount(now, dt){
 }
 
 function ensureShadowFloor(){
-  const want = SCENE.shadowFloor === true;
+  applyGround();
+  const want = SCENE.shadowFloor === true || groundHidden();
   if(want && !shadowFloor){
     shadowFloor = new THREE.Mesh(
       new THREE.PlaneGeometry(4000, 4000),
@@ -886,7 +887,7 @@ function ensureShadowFloor(){
   }
   if(shadowFloor){
     shadowFloor.visible = want;
-    shadowFloor.material.opacity = SCENE.shadowOpacity ?? 0.34;
+    shadowFloor.material.opacity = groundHidden() && SCENE.shadowFloor !== true ? 0.16 : (SCENE.shadowOpacity ?? 0.34);
   }
 }
 
@@ -978,8 +979,31 @@ function resetRoot(name){
 // At a low camera angle the floor plane's far edge draws a hard line across the
 // backdrop. Fog tinted to the same grey dissolves that horizon instead of
 // needing an ever-larger plane.
+let themeFog = null;
 function applyFog(T){
-  scene.fog = T.fog ? new THREE.Fog(T.fog.colour, T.fog.near, T.fog.far) : null;
+  themeFog = T.fog ? new THREE.Fog(T.fog.colour, T.fog.near, T.fog.far) : null;
+  scene.fog = groundHidden() ? null : themeFog;
+  groundKey = '';
+}
+
+// A backdrop that is its own seamless floor (the white room) must not have the
+// board's ground plane or its fog in front of it: where that plane ends it cuts a
+// grey band with a hard edge across the room. While such a backdrop is up the
+// floor and fog go, and only the shadows stay, so the machine still sits on it.
+let groundKey = '';
+function groundHidden(){
+  // bgLayers is declared further down; the first theme is built before it exists
+  let front = null;
+  try { front = bgLayers.length ? bgLayers[bgLayers.length - 1] : null; } catch(e){ return false; }
+  return !!(front && front.spec && front.spec.seamless);
+}
+function applyGround(){
+  const hide = groundHidden();
+  const key = hide + '|' + (SCENE.floor !== false) + '|' + (SCENE.fog !== false) + '|' + activeTheme;
+  if(key === groundKey) return;
+  groundKey = key;
+  if(root) root.traverse(o => { if(o.userData.floor) o.visible = !hide && SCENE.floor !== false; });
+  scene.fog = hide || SCENE.fog === false ? null : themeFog;
 }
 
 function markPicker(name){
@@ -1019,6 +1043,7 @@ async function buildModelTheme(name){
         metalness:T.floor.metal, envMapIntensity:T.floor.env}));
     f.rotation.x = -Math.PI/2; f.position.y = T.floor.y ?? 0;
     f.receiveShadow = true; f.userData.noFit = true;   // must not drive the camera fit
+    f.userData.floor = true;
     root.add(f);
   }
 
@@ -1333,6 +1358,7 @@ function buildTheme(name){
     floor.position.set(capsCtr.x, -0.02, zB + DEPTH/2);
     floor.receiveShadow = true;
     floor.userData.noFit = true;      // a 260-unit plane must never drive the camera fit
+    floor.userData.floor = true;
     root.add(floor);
   }
 
@@ -1782,7 +1808,8 @@ const BUILTIN_BACKGROUNDS = { 'white-room': whiteRoom };
 function bgSpec(spec){
   if(typeof spec === 'string'){
     if(!BUILTIN_BACKGROUNDS[spec]) throw new Error('background: no built-in background named "' + spec + '" (have: ' + Object.keys(BUILTIN_BACKGROUNDS).join(', ') + ')');
-    return { factory: BUILTIN_BACKGROUNDS[spec] };
+    // seamless: it is its own floor, so the ground plane and fog step aside
+    return { factory: BUILTIN_BACKGROUNDS[spec], seamless: true };
   }
   if(typeof spec === 'function') return { factory: spec };
   if(!spec || typeof spec !== 'object')
