@@ -3344,6 +3344,416 @@ function drawLoading() {
   g.textAlign = 'left';
 }
 
+
+// ---------------------------------------------------------------- showcase
+// KATA's face on the TYPEMAXX select screen, drawn by the game so it always
+// matches the game. Three painters, all driven by t = seconds since the select
+// screen opened, so the host only has to call them:
+//
+//   KATA.showcase.background(ctx, W, H, t)   intro, then a 10 s trailer that loops
+//   KATA.showcase.logo(ctx, cx, cy, width, t) the stylised wordmark
+//   KATA.showcase.icon(ctx, x, y, size, t, focused)  the app icon for the tile
+//
+// The trailer is scripted, not recorded: every shot is a pure function of time,
+// so the loop is exact. Eight shots jump-cut between the worlds; the last closes
+// in an ink wipe that the first opens from.
+const SHOW_INTRO = 1.5, SHOW_LOOP = 10;
+
+function showcaseScene(g, W, H, t, fn) {
+  const sR = S.R, sT = S.t, sC = S.ctx;
+  S.ctx = g;
+  S.t = t;
+  S.R = null;
+  g.save();
+  g.imageSmoothingEnabled = false;
+  g.scale(W / LW, H / LH);
+  try { fn(); } catch (e) { if (!showcaseScene.warned) { showcaseScene.warned = true; console.error('KATA showcase:', e); } }
+  finally { g.restore(); S.R = sR; S.t = sT; S.ctx = sC; }
+}
+
+const fakeOpt = (x, w, ry, type, world, text, extra) =>
+  Object.assign({ x, w, ry, type, world, seed: Math.abs(x | 0) + 7, text: text || '', len: (text || '').length, enemy: null, guard: null, gate: false, heart: null }, extra || {});
+
+// a roof in the trailer, with its words part-typed
+function tRoof(o, cam, typed) {
+  const x = Math.round(o.x - cam);
+  if (x + o.w < -60 || x > LW + 60) return;
+  const b = drawRoof(o, x, o.ry, 0);
+  for (let i = 0; i < o.len; i++) {
+    const ch = o.text[i];
+    if (ch === ' ') continue;
+    cell(ch, x + PADX + i * ADV, b.textY, i < typed ? 'dim' : i === typed ? 'gold' : 'ink');
+  }
+  if (typed < o.len && typed >= 0) rect(x + PADX + typed * ADV, b.textY + 9, ADV - 1, 1, COL.gold);
+}
+
+function arc(x0, y0, x1, y1, h, u) {
+  return [lerp(x0, x1, u), lerp(y0, y1, u) - Math.sin(u * Math.PI) * h];
+}
+
+function speedLines(cx, cy, tt, n, col) {
+  for (let i = 0; i < n; i++) {
+    const a = hash(i, 31) * Math.PI * 2;
+    const r0 = 60 + ((tt * 400 + i * 37) % 120);
+    drawLine(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0, cx + Math.cos(a) * (r0 + 24), cy + Math.sin(a) * (r0 + 24), col);
+  }
+}
+
+function zoomAt(cx, cy, z, fn) {
+  const g = ctx();
+  g.save();
+  g.translate(cx, cy);
+  g.scale(z, z);
+  g.translate(-cx, -cy);
+  fn();
+  g.restore();
+}
+
+function inkBand(x0, x1, y0, y1, seed) {
+  const g = ctx();
+  g.fillStyle = '#050508';
+  for (let x = Math.floor(x0); x < x1; x += 2) {
+    g.fillRect(x, y0 - Math.round(hash(x, seed) * 4), 2, y1 - y0 + Math.round(hash(x, seed + 1) * 8));
+  }
+}
+
+function caption(word, sub, u) {
+  if (u <= 0 || u >= 1) return;
+  // captions ride the open band on the right, clear of the menu's tiles and title
+  const e = easeIO(clamp(u / 0.25, 0, 1)), out = clamp((u - 0.8) / 0.2, 0, 1);
+  const R0 = LW - 8, span = 150;
+  const x0 = R0 - span * e, x1 = R0 - span * out;
+  inkBand(x0, x1, 100, 128, 41);
+  if (out < 0.3) {
+    textR('large', word, R0 - 8, 100, 'pale');
+    if (sub) textR('small', sub, R0 - 8, 118, 'lamp');
+  }
+}
+
+// ---- the eight shots
+const SHOTS = [
+  // 1. the Night City: a run, a kage on the next roof throws
+  { d: 1.7, draw(s, tt) {
+    const cam = s * 55;
+    BACKDROP.city(cam, tt);
+    drawVoid('city', cam, tt);
+    const A = fakeOpt(-40, 262, 150, 'temple', 'city', 'rain on the tiles');
+    const B = fakeOpt(264, 232, 128, 'inn', 'city', 'a crow takes flight');
+    tRoof(A, cam, Math.floor(s * 10));
+    tRoof(B, cam, -1);
+    const kx = B.x + 190 - cam;
+    put(s > 0.5 && s < 0.9 ? vclip('kage_throw', 'city') : vclip('kage_idle', 'city'), s > 0.5 ? Math.min(2, (s - 0.5) * 10) : frameOf('kage_idle', tt), kx, 126);
+    let nx, ny, clip = 'ninja_run', fi = frameOf('ninja_run', tt);
+    if (s < 1.0) { nx = 70 + s * 150; ny = 148; }
+    else if (s < 1.4) { [nx, ny] = arc(220, 148, 300, 126, 22, (s - 1.0) / 0.4); clip = 'ninja_jump'; fi = (s - 1.0) / 0.4 * 6; }
+    else { nx = 300 + (s - 1.4) * 150; ny = 126; }
+    put(clip, fi, nx - cam, ny);
+    if (s > 0.7 && s < 1.25) { const u = (s - 0.7) / 0.55; put('shuriken', frameOf('shuriken', tt), lerp(kx - 8, nx - cam + 4, u), lerp(104, ny - 20, u)); }
+    drawWeather('city', cam, tt, 1.4);
+    caption('TYPE TO RUN', 'every roof is a road', s / 1.7);
+  } },
+  // 2. close up: the catch
+  { d: 0.8, cut: true, draw(s, tt) {
+    BACKDROP.city(90, tt);
+    rect(0, 0, LW, LH, 'rgba(10,6,20,0.45)');
+    speedLines(160, 120, tt, 40, 'rgba(232,244,236,0.55)');
+    zoomAt(160, 140, 2.6 + s * 0.5, () => {
+      const B = fakeOpt(40, 260, 158, 'inn', 'city', '');
+      drawRoof(B, 40, 158, 0);
+      put('ninja_catch', Math.min(1, s * 5), 160, 156);
+      if (s < 0.22) put('shuriken', frameOf('shuriken', tt), lerp(210, 172, s / 0.22), 136);
+      else { put('shuriken', frameOf('shuriken', tt), 172, 136); if (s < 0.4) put('spark', (s - 0.22) * 18, 172, 136); }
+    });
+    if (s > 0.2 && s < 0.28) rect(0, 0, LW, LH, 'rgba(255,255,255,0.6)');
+    caption('CATCH IT', 'dodge early, send it back', (s + 0.1) / 0.9);
+  } },
+  // 3. the Snow Pass: over a chasm on the hook
+  { d: 1.6, draw(s, tt) {
+    const cam = 60 + s * 48;
+    BACKDROP.snow(cam, tt);
+    drawVoid('snow', cam, tt);
+    const A = fakeOpt(0, 240, 146, 'snowtown', 'snow', 'snow on the shrine');
+    const B = fakeOpt(334, 220, 128, 'snowtemple', 'snow', 'the pass is silent');
+    blit('hook_post', B.x - 44 - cam, B.ry + 2 - 64);
+    tRoof(A, cam, 18);
+    tRoof(B, cam, -1);
+    const ring = [B.x - 39, B.ry - 52];
+    let nx, ny, clip, fi;
+    if (s < 0.35) { nx = 150 + s * 200; ny = 144; clip = 'ninja_run'; fi = frameOf('ninja_run', tt); }
+    else if (s < 0.55) { nx = 220; ny = 144; clip = 'ninja_throw'; fi = (s - 0.35) / 0.2 * 3;
+      const u = (s - 0.35) / 0.2; drawLine(nx - cam + 3, ny - 22, lerp(nx - cam, ring[0] - cam, u), lerp(ny - 22, ring[1], u), '#B89868'); }
+    else if (s < 1.15) {
+      const u = (s - 0.55) / 0.6, a0 = Math.atan2(220 - ring[0], 122 - ring[1]), a1 = Math.atan2(B.x + 16 - ring[0], 106 - ring[1]);
+      const a = lerp(a0, a1, easeIO(u)), r = lerp(Math.hypot(220 - ring[0], 122 - ring[1]), Math.hypot(B.x + 16 - ring[0], 106 - ring[1]), u) + Math.sin(u * Math.PI) * 8;
+      nx = ring[0] + Math.sin(a) * r; ny = ring[1] + Math.cos(a) * r + 20;
+      drawLine(nx - cam + 3, ny - 22, ring[0] - cam, ring[1], '#B89868');
+      clip = 'ninja_swing'; fi = frameOf('ninja_swing', tt);
+    } else { nx = B.x + 16 + (s - 1.15) * 120; ny = 126; clip = 'ninja_run'; fi = frameOf('ninja_run', tt); }
+    put(clip, fi, nx - cam, ny);
+    drawWeather('snow', cam, tt, 1.6);
+    caption('HOOK THE GAP', 'five worlds, one road', (s - 0.2) / 1.3);
+  } },
+  // 4. close up: the ronin at the castle
+  { d: 0.8, cut: true, draw(s, tt) {
+    BACKDROP.castle(220, tt);
+    rect(0, 0, LW, LH, 'rgba(60,10,20,0.35)');
+    const clash = s > 0.3 && s < 0.4;
+    zoomAt(160, 150, 2.2 + s * 0.2, () => {
+      const R0 = fakeOpt(40, 260, 162, 'keep', 'castle', '');
+      drawRoof(R0, 40, 162, 0);
+      if (s < 0.3) { put(vclip('enemy_wind', 'castle'), s / 0.3 * 2, 184, 160); put('ninja_idle', frameOf('ninja_idle', tt), 136, 160); }
+      else if (s < 0.55) { put(vclip('enemy_die', 'castle'), 0, 184, 160); put('ninja_strike', 3, 146, 160); }
+      else { put(vclip('enemy_die', 'castle'), Math.min(5, (s - 0.55) * 20), 184, 160); put('ninja_strike', 3, 146, 160); put('blood_spray', (s - 0.55) * 18, 186, 142); }
+      if (s > 0.28 && s < 0.5) put('slash', (s - 0.28) * 14, 168, 140);
+    });
+    if (clash) rect(0, 0, LW, LH, 'rgba(255,255,255,0.7)');
+    if (s > 0.4) putScaled('kata_tiger', Math.min(7, (s - 0.4) * 20), 244, 70, 1);
+    caption('ONE CUT', 'type his word, or fall', (s - 0.05) / 0.85);
+  } },
+  // 5. the Keep: climbing, a shinobi at the window
+  { d: 1.7, draw(s, tt) {
+    const T = { wk: 'castle', x: 70, w: 180, baseY: 176, floors: 7, style: TOWER_STYLE.castle };
+    const climbY = T.baseY - FH * (0.3 + s * 1.2);
+    const camY = Math.max(0, 176 - climbY);
+    const g = ctx();
+    const lift = Math.round(Math.min(camY * 0.3, 130));
+    rect(0, 0, LW, lift + 1, SKY_TOP.castle);
+    g.save(); g.translate(0, lift); BACKDROP.castle(40, tt); drawVoid('castle', 40, tt); g.restore();
+    S.R = { cam: 0, camY, vert: { side: 'left', tower: T } };
+    g.save(); g.translate(0, Math.round(camY));
+    drawTower(T);
+    for (let i = 0; i < 4; i++) {
+      const base = T.baseY - i * FH;
+      const words = ['the keep at sunset', 'arrow slits stare', 'climb the outer wall', 'the keep is near'][i];
+      for (let k = 0; k < words.length; k++) if (words[k] !== ' ') cell(words[k], T.x + PADX + k * ADV, base - FH + 15, i < 1 ? 'dim' : 'ink');
+    }
+    // a shinobi leans out of the far window
+    const wbase = T.baseY - FH * 2, wx = towerWindowX(T, 'right');
+    g.save(); g.beginPath(); g.rect(wx + 2, wbase - 28, 14, 18); g.clip();
+    put(vclip('kage_throw', 'castle'), s > 0.8 ? Math.min(2, (s - 0.8) * 10) : 0, wx + 9, wbase + 8);
+    g.restore();
+    blit(T.style.sill, wx - 2, wbase - 12);
+    put(vclip('ninja_climb', 'castle'), frameOf('ninja_climb', tt), climbX(T, 'left'), climbY);
+    if (s > 0.95 && s < 1.35) { const u = (s - 0.95) / 0.4; put('shuriken', frameOf('shuriken', tt), lerp(wx, climbX(T, 'left') + 4, u), lerp(wbase - 16, climbY - 20, u)); }
+    g.restore();
+    S.R = null;
+    drawWeather('castle', 0, tt, 1.5);
+    drawSideBars({ bars: 1 });
+    caption('CLIMB', 'the road turns upward', (s - 0.15) / 1.4);
+  } },
+  // 6. a crossing: the wave takes the castle, the harbour beyond
+  { d: 1.1, draw(s, tt) {
+    const cam = 300 + s * 70;
+    const front = lerp(LW + 70, -90, easeIO(clamp(s / 1.0, 0, 1)));
+    clipLeft(front, () => { BACKDROP.castle(cam, tt); drawVoid('castle', cam, tt); });
+    clipRight(front, () => { BACKDROP.harbour(cam, tt); drawVoid('harbour', cam, tt); });
+    const A = fakeOpt(280, 220, 150, 'keep', 'castle', 'silence on the wall');
+    const G2 = fakeOpt(530, 210, 140, 'warehouse', 'harbour', 'down to the harbour', { gate: true });
+    tRoof(A, cam, 20);
+    tRoof(G2, cam, -1);
+    const nx = 420 + s * 160, ny = s < 0.4 ? 148 : 138;
+    put(s > 0.3 && s < 0.5 ? 'ninja_jump' : 'ninja_run', s > 0.3 && s < 0.5 ? (s - 0.3) * 30 : frameOf('ninja_run', tt), nx - cam, ny);
+    if (s > 0.75) {
+      const u = (s - 0.75) / 0.35, gx = G2.x + G2.w / 2 - cam;
+      for (let k = 0; k < 48; k++) { const a = k / 48 * Math.PI * 2, r = 4 + u * 70; rect(gx + Math.cos(a) * r, 114 + Math.sin(a) * r * 0.7, 2, 1, '#F2A05A'); }
+    }
+    clipLeft(front, () => drawWeather('castle', cam, tt));
+    clipRight(front, () => drawWeather('harbour', cam, tt, 2));
+    FRONTS.harbour(front, s, tt);
+  } },
+  // 7. the Bamboo Grove: a dive from above onto the decks
+  { d: 1.2, draw(s, tt) {
+    const cam = 100 + s * 40;
+    const camY = Math.max(0, 110 * (1 - easeIO(clamp(s / 0.9, 0, 1))));
+    const g = ctx();
+    const lift = Math.round(camY * 0.3);
+    rect(0, 0, LW, lift + 1, SKY_TOP.grove);
+    g.save(); g.translate(0, lift); BACKDROP.grove(cam, tt); drawVoid('grove', cam, tt); g.restore();
+    g.save(); g.translate(0, Math.round(camY));
+    const A = fakeOpt(150, 280, 152, 'hut', 'grove', 'fireflies drift up');
+    tRoof(A, cam, s > 0.9 ? Math.floor((s - 0.9) * 20) : 0);
+    const u = clamp(s / 0.9, 0, 1);
+    const nx = lerp(130, 176, u), ny = lerp(-60, 150, u * u);
+    if (s < 0.9) put('ninja_glide', frameOf('ninja_glide', tt), nx - cam + 100, ny);
+    else { put('ninja_run', frameOf('ninja_run', tt), 176 - cam + 100 + (s - 0.9) * 90, 150); if (s < 1.0) put('dust', (s - 0.9) * 40, 176 - cam + 100, 151); }
+    g.restore();
+    drawWeather('grove', cam, tt, 2.2);
+    caption('FIVE WORLDS', 'shuffled every run', (s - 0.2) / 1.0);
+  } },
+  // 8. the hero shot, and the ink closes over it
+  { d: 1.1, draw(s, tt) {
+    BACKDROP.city(0, tt);
+    zoomAt(160, 170, 1 + s * 0.2, () => {
+      blitScaled('moon', 115, 34, 3);
+      const R0 = fakeOpt(-20, 360, 176, 'temple', 'city', '');
+      drawRoof(R0, -20, 176, 0);
+      put('ninja_idle', frameOf('ninja_idle', tt), 160, 174);
+      put(vclip('kage_idle', 'snow'), frameOf('kage_idle', tt), 236, 174);
+      put(vclip('enemy_idle', 'castle'), frameOf('enemy_idle', tt + 1), 272, 174);
+      put(vclip('archer_idle', 'harbour'), frameOf('archer_idle', tt + 2), 88, 174);
+    });
+    drawWeather('castle', 0, tt, 1);
+  } },
+];
+const SHOT_STARTS = [];
+{ let a = 0; for (const sh of SHOTS) { SHOT_STARTS.push(a); a += sh.d; } }
+
+function drawTrailerFrame(t) {
+  const lt = ((t % SHOW_LOOP) + SHOW_LOOP) % SHOW_LOOP;
+  let i = SHOTS.length - 1;
+  for (let k = 0; k < SHOTS.length; k++) if (lt >= SHOT_STARTS[k]) i = k;
+  const s = lt - SHOT_STARTS[i];
+  rect(0, 0, LW, LH, '#000');
+  SHOTS[i].draw(s, lt);
+  // a cut into a close-up lands on a flash
+  if (SHOTS[i].cut && s < 0.05) rect(0, 0, LW, LH, 'rgba(255,255,255,' + (0.8 * (1 - s / 0.05)).toFixed(2) + ')');
+  // letterbox and grain
+  rect(0, 0, LW, 14, '#000');
+  rect(0, LH - 14, LW, 14, '#000');
+  const g = ctx();
+  g.fillStyle = 'rgba(255,255,255,0.08)';
+  for (let k = 0; k < 40; k++) g.fillRect((hash(k, (lt * 24) | 0) * LW) | 0, (hash(k + 99, (lt * 24) | 0) * LH) | 0, 1, 1);
+  // the loop seam: the last shot closes in ink, the first opens out of it
+  const close = clamp((lt - (SHOW_LOOP - 0.45)) / 0.45, 0, 1), open = lt < 0.35 ? 1 - lt / 0.35 : 0;
+  if (close > 0) inkBand(-4, (LW + 8) * easeIO(close), 0, LH, 77);
+  if (open > 0) inkBand((LW + 8) * (1 - easeIO(open)), LW + 8, 0, LH, 77);
+}
+
+const KATA_SHOWCASE = {
+  INTRO: SHOW_INTRO,
+  LOOP: SHOW_LOOP,
+  get ready() { return S.ready; },
+  preload() { if (!S.ready && !S.loading) loadAssets(); return new Promise(res => { const w = () => S.ready || S.error ? res(S.ready) : setTimeout(w, 50); w(); }); },
+
+  // t: seconds since the select screen opened. dim: how much to darken for the menu over it
+  background(g, W, H, t, dim) {
+    if (!S.ready) { if (!S.loading && !S.error) loadAssets(); g.fillStyle = '#05070E'; g.fillRect(0, 0, W, H); return; }
+    showcaseScene(g, W, H, t, () => {
+      drawTrailerFrame(t);
+      // the menu reads over a darker top and bottom
+      const d = dim == null ? 0.5 : dim;
+      const gr = ctx().createLinearGradient(0, 0, 0, LH);
+      gr.addColorStop(0, 'rgba(3,4,8,' + (d * 0.9).toFixed(2) + ')');
+      gr.addColorStop(0.35, 'rgba(3,4,8,' + (d * 0.25).toFixed(2) + ')');
+      gr.addColorStop(0.6, 'rgba(3,4,8,' + (d * 0.3).toFixed(2) + ')');
+      gr.addColorStop(1, 'rgba(3,4,8,' + d.toFixed(2) + ')');
+      ctx().fillStyle = gr;
+      ctx().fillRect(0, 0, LW, LH);
+      // the intro: a drop of ink, a katana cut across the dark, the dark falls away
+      if (t < SHOW_INTRO) {
+        const g2 = ctx();
+        const cutU = clamp((t - 0.25) / 0.3, 0, 1), part = easeIO(clamp((t - 0.6) / 0.6, 0, 1));
+        const off = part * 200;
+        const nx = -0.6, ny = -1;          // perpendicular to the slash
+        g2.save();
+        g2.fillStyle = '#030306';
+        g2.beginPath();                    // the half above the cut slides up and away
+        g2.moveTo(-40 + nx * off, 280 + ny * off); g2.lineTo(360 + nx * off, -40 + ny * off); g2.lineTo(360 + nx * off, -400 + ny * off); g2.lineTo(-400 + nx * off, -400 + ny * off); g2.closePath(); g2.fill();
+        g2.beginPath();                    // the half below slides down
+        g2.moveTo(-40 - nx * off, 280 - ny * off); g2.lineTo(360 - nx * off, -40 - ny * off); g2.lineTo(700 - nx * off, 700 - ny * off); g2.lineTo(-400 - nx * off, 700 - ny * off); g2.closePath(); g2.fill();
+        g2.restore();
+        if (t < 0.4) {
+          const r = easeIO(clamp(t / 0.25, 0, 1)) * 26;
+          for (let k = 0; k < 40; k++) {
+            const a = hash(k, 5) * Math.PI * 2, rr = r * (0.3 + hash(k, 6) * 1.2);
+            rect(160 + Math.cos(a) * rr, 120 + Math.sin(a) * rr, 2, 2, k % 3 ? '#C8342E' : '#7A1A1E');
+          }
+        }
+        if (cutU > 0 && t < 0.75) {
+          const x1 = lerp(-40, 360, cutU), y1 = lerp(280, -40, cutU);
+          drawLine(-40, 280, x1, y1, '#FFFFFF');
+          drawLine(-40, 281, x1, y1 + 1, '#BCD8EE');
+          if (t > 0.5 && t < 0.62) rect(0, 0, LW, LH, 'rgba(255,255,255,0.45)');
+        }
+      }
+    });
+  },
+
+  // the wordmark, centred at (cx, cy), `width` wide on the host canvas
+  logo(g, cx, cy, width, t) {
+    if (!S.ready) return;
+    const tl = tile('logo_kata');
+    const sc = width / tl[2], w = tl[2] * sc, h = tl[3] * sc;
+    const e = easeIO(clamp((t - 0.8) / 0.35, 0, 1));
+    if (e <= 0) return;
+    const yCut = u => (17.16 - (u - 4) * 0.16) / tl[3];      // the slash through the letters, as a fraction of height
+    g.save();
+    g.imageSmoothingEnabled = false;
+    const left = cx - w / 2, top = cy - h / 2;
+    const slide = (1 - e) * w * 0.6;
+    const shake = t > 1.15 && t < 1.3 ? Math.round(Math.sin(t * 120) * sc) : 0;
+    for (const half of [0, 1]) {
+      g.save();
+      g.beginPath();
+      const ya = top + h * yCut(0), yb = top + h * yCut(tl[2]);
+      if (half === 0) { g.moveTo(left - 20, top - 40); g.lineTo(left + w + 20, top - 40); g.lineTo(left + w + 20, yb); g.lineTo(left - 20, ya); }
+      else { g.moveTo(left - 20, ya); g.lineTo(left + w + 20, yb); g.lineTo(left + w + 20, top + h + 40); g.lineTo(left - 20, top + h + 40); }
+      g.closePath();
+      g.clip();
+      g.globalAlpha = e;
+      g.drawImage(S.img, tl[0], tl[1], tl[2], tl[3], Math.round(left + (half ? -slide : slide)) + shake, Math.round(top), Math.round(w), Math.round(h));
+      g.restore();
+    }
+    // a glint runs down the blade every few seconds
+    const gu = ((t - 1.2) % 4.5) / 0.7;
+    if (t > 1.2 && gu >= 0 && gu <= 1) {
+      const gx = left + w * gu * 0.8, gy = top + h * yCut(tl[2] * gu * 0.8) - sc;
+      const rr = g.createRadialGradient(gx, gy, 0, gx, gy, 10 * sc);
+      rr.addColorStop(0, 'rgba(255,255,255,0.9)'); rr.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = rr;
+      g.fillRect(gx - 10 * sc, gy - 10 * sc, 20 * sc, 20 * sc);
+    }
+    g.restore();
+  },
+
+  // the app icon, in a square `size` wide; focused adds a lift and a gold edge
+  icon(g, x, y, size, t, focused) {
+    if (!S.ready) return;
+    const tl = tile('icon_kata');
+    const pop = t < 1.1 ? 0 : t < 1.35 ? 1 - Math.pow(1 - (t - 1.1) / 0.25, 3) * 1 : 1;
+    if (pop <= 0) return;
+    const bounce = t < 1.5 ? 1 + Math.sin(clamp((t - 1.1) / 0.4, 0, 1) * Math.PI) * 0.08 : 1;
+    const lift = focused ? Math.round(Math.sin(t * 3) * size * 0.02) - size * 0.03 : 0;
+    const s = size * bounce;
+    const ix = Math.round(x + (size - s) / 2), iy = Math.round(y + (size - s) / 2 + lift);
+    g.save();
+    g.imageSmoothingEnabled = false;
+    g.globalAlpha = focused ? pop : pop * 0.72;
+    g.drawImage(S.img, tl[0], tl[1], tl[2], tl[3], ix, iy, Math.round(s), Math.round(s));
+    // a shine sweeps the glass every few seconds
+    const su = ((t + 0.4) % 3.5) / 0.6;
+    if (su <= 1) {
+      g.save();
+      const r = s * 0.14;
+      g.beginPath();
+      g.moveTo(ix + r, iy); g.lineTo(ix + s - r, iy); g.quadraticCurveTo(ix + s, iy, ix + s, iy + r);
+      g.lineTo(ix + s, iy + s - r); g.quadraticCurveTo(ix + s, iy + s, ix + s - r, iy + s);
+      g.lineTo(ix + r, iy + s); g.quadraticCurveTo(ix, iy + s, ix, iy + s - r);
+      g.lineTo(ix, iy + r); g.quadraticCurveTo(ix, iy, ix + r, iy);
+      g.clip();
+      const bx = ix - s + su * s * 2.2;
+      const gr = g.createLinearGradient(bx, iy, bx + s * 0.5, iy + s);
+      gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.5, 'rgba(255,255,255,0.35)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = gr;
+      g.fillRect(ix, iy, s, s);
+      g.restore();
+    }
+    if (focused) {
+      g.globalAlpha = 0.6 + Math.sin(t * 4) * 0.25;
+      g.strokeStyle = '#F4B93D';
+      g.lineWidth = Math.max(1, size / 32);
+      const r = s * 0.14;
+      g.beginPath();
+      g.moveTo(ix + r, iy - 1); g.lineTo(ix + s - r, iy - 1); g.quadraticCurveTo(ix + s + 1, iy - 1, ix + s + 1, iy + r);
+      g.lineTo(ix + s + 1, iy + s - r); g.quadraticCurveTo(ix + s + 1, iy + s + 1, ix + s - r, iy + s + 1);
+      g.lineTo(ix + r, iy + s + 1); g.quadraticCurveTo(ix - 1, iy + s + 1, ix - 1, iy + s - r);
+      g.lineTo(ix - 1, iy + r); g.quadraticCurveTo(ix - 1, iy - 1, ix + r, iy - 1);
+      g.stroke();
+    }
+    g.restore();
+  },
+};
+
 // ---------------------------------------------------------------- export
 const KATA = {
   name: 'kata',
@@ -3351,6 +3761,8 @@ const KATA = {
   // read-only handles for tooling; the game never reads them
   get state() { return S; },
   get dev() { return { genTower, ensureRoad, newRun }; },
+  // the select-screen face of the game: icon, wordmark, intro and trailer
+  showcase: KATA_SHOWCASE,
 
   enter() {
     loadRank();

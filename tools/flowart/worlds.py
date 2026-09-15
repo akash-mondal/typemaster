@@ -848,3 +848,176 @@ def tiles():
     out = _tiles_before_seals()
     out.update(seal_tiles())
     return out
+
+
+# ================================================================== SHOWCASE
+# The game's face on the select screen: a store-style app icon, and the
+# stylised wordmark - blade-cut letters with a katana slash through them, a
+# vermilion brush stroke under, and the seal of 型 (kata).
+
+LETTERS = {
+    'K': ["####........####", "####.......####.", "####......####..", "####.....####...", "####....####....",
+          "####...####.....", "####..####......", "#########.......", "########........", "#########.......",
+          "####..####......", "####...####.....", "####....####....", "####.....####...", "####......####..",
+          "####.......####.", "####........####", "####.........###"],
+    'A': [".......##.......", "......####......", "......####......", ".....######.....", ".....###.###....",
+          "....####..###...", "....###...####..", "...####....###..", "...###.....####.", "..####......###.",
+          "..##############", ".###############", ".####.......####", "####........####", "###..........###",
+          "###..........###", "##............##", "##............##"],
+    'T': ["..############..", "################", "################", "......####......", "......####......",
+          "......####......", "......####......", "......####......", "......####......", "......####......",
+          "......####......", "......####......", "......####......", "......####......", ".....######.....",
+          ".....######.....", "......####......", ".......##......."],
+}
+
+
+def logo_tile():
+    word = "KATA"
+    gw, gh, gap = 16, 18, 3
+    ww = len(word) * gw + (len(word) - 1) * gap
+    W_, H_ = ww + 40, 36
+    ox, oy = 4, 6
+    BONE = rgb('#F4EEDC'); STEEL = rgb('#B8C0D0'); GOLD = rgb('#F4B93D')
+    INK_ = rgb('#07070C'); VERM = rgb('#C8342E'); VERM2 = rgb('#7A1A1E')
+    on = set()
+    for i, ch in enumerate(word):
+        for y, row in enumerate(LETTERS[ch]):
+            for x, c in enumerate(row):
+                if c == '#':
+                    on.add((ox + i * (gw + gap) + x, oy + y))
+    # the katana cut: a diagonal through the word; everything above it slides right
+    def above(x, y):
+        return y < oy + gh * 0.62 - (x - ox) * 0.16
+    cut = set()
+    for (x, y) in on:
+        if above(x, y):
+            cut.add((x + 2, y - 1))
+        else:
+            cut.add((x, y))
+    g = G(W_, H_)
+    # vermilion brush stroke under the word
+    rnd = random.Random(5)
+    for x in range(ox - 2, ox + ww + 6):
+        t = (x - ox) / float(ww)
+        th = 3 + int(2 * math.sin(t * math.pi))
+        yb = oy + gh + 3 + int(t * 2)
+        for k in range(th):
+            if rnd.random() < 0.92 or k == 0:
+                g.put(x, yb + k, VERM if k < th - 1 else VERM2)
+    # ink shadow, outline, then the letters in a bone-to-steel fill
+    for (x, y) in cut:
+        g.put(x + 2, y + 2, VERM2)
+    for (x, y) in cut:
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)):
+            if (x + dx, y + dy) not in cut:
+                g.put(x + dx, y + dy, INK_)
+    for (x, y) in cut:
+        t = (y - oy) / float(gh)
+        g.put(x, y, BONE if t < 0.45 else STEEL if t < 0.8 else rgb('#8A94A8'))
+    # the slash itself: a bright blade line along the cut
+    for x in range(ox - 3, ox + ww + 4):
+        y = int(round(oy + gh * 0.62 - (x - ox) * 0.16)) - 1
+        g.put(x, y, rgb('#FFFFFF') if (x % 9) else GOLD)
+    # the seal of 型
+    import os
+    from PIL import ImageFont
+    font = ImageFont.truetype(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ref', 'brush', 'YujiBoku-Regular.ttf'), 18)
+    sx, sy, ss = ox + ww + 8, oy + 1, 22
+    for y in range(ss):
+        for x in range(ss):
+            edge = min(x, y, ss - 1 - x, ss - 1 - y)
+            if edge == 0 and (x + y) % 3 == 0:
+                continue
+            g.put(sx + x, sy + y, VERM if edge > 1 else VERM2)
+    m = font.getmask('型', mode='1')
+    bb = font.getbbox('型')
+    kx, ky = sx + (ss - (bb[2] - bb[0])) // 2 - bb[0], sy + (ss - (bb[3] - bb[1])) // 2 - bb[1]
+    for y in range(m.size[1]):
+        for x in range(m.size[0]):
+            if m.getpixel((x, y)):
+                g.put(kx + bb[0] + x, ky + bb[1] + y, BONE)
+    return g
+
+
+def icon_tile():
+    """64x64 app icon: a blood moon, the ninja leaping across it mid-cut, a
+    temple skyline below, framed like a store icon."""
+    import derive as DV
+    S_ = 64
+    g = G(S_, S_)
+    top, bot = (0x0A, 0x0E, 0x22), (0x6A, 0x14, 0x22)
+    steps = [tuple(int(top[k] + (bot[k] - top[k]) * i / 7.0) for k in range(3)) + (255,) for i in range(8)]
+    bg = sky(steps, S_)
+    for y in range(S_):
+        for x in range(S_):
+            g.put(x, y, bg.px[y][x])
+    # the moon, big and low
+    cx, cy, r = 34, 26, 17
+    for y in range(S_):
+        for x in range(S_):
+            d = math.hypot(x - cx, y - cy)
+            if d <= r:
+                l = ((x - cx) * -0.6 + (y - cy) * -0.8) / r
+                g.put(x, y, rgb('#E05A48') if l > 0.3 else rgb('#B8302C') if l > -0.4 else rgb('#7E1E22'))
+            elif d <= r + 2 and BAYER[y % 4][x % 4] < 6:
+                g.put(x, y, rgb('#8A2A30'))
+    # skyline
+    sk = _profile([(0, 50), (8, 46), (14, 48), (22, 40), (30, 47), (40, 44), (50, 49), (58, 42), (63, 48)], S_, 3)
+    for x in range(S_):
+        for y in range(sk[x], S_):
+            g.put(x, y, rgb('#07070C'))
+    for (wx, wy) in ((23, 45), (27, 46), (58, 46), (12, 50)):
+        g.put(wx, wy, ST.LAMP2)
+    # a pagoda spire on the skyline
+    for k in range(10):
+        g.rect(20 - k // 2, 34 + k, 23 + k // 2, 34 + k, rgb('#07070C'))
+    g.rect(21, 28, 22, 34, rgb('#07070C'))
+    # one crescent slash sweeping across the moon, upper left to lower right
+    for i in range(80):
+        t = i / 79.0
+        x = 4 + t * 58
+        y = 8 + t * 44 + math.sin(t * math.pi) * -10
+        w = int(round(math.sin(t * math.pi) * 3))
+        for k in range(-w, w + 1):
+            col = rgb('#FFFFFF') if abs(k) <= max(0, w - 2) else rgb('#BCD8EE') if abs(k) < w else rgb('#6A86B0')
+            g.put(x + k * 0.5, y - k, col)
+    # the ninja close up: head, shoulders and blade, doubled
+    sheet = DV._sheet()
+    f = DV.frame(sheet, 13, 0.6, blade=28, wet=True)
+    rows = [y for y in range(f.h) if any(f.px[y][x][3] for x in range(f.w))]
+    cols = [x for x in range(f.w) if any(f.px[y][x][3] for y in range(f.h))]
+    y0, x0 = rows[0], cols[0]
+    fx, fy = 6, 10
+    for y in range(y0, min(f.h, y0 + 27)):
+        for x in range(x0, cols[-1] + 1):
+            p = f.px[y][x]
+            if p[3]:
+                for dy in (0, 1):
+                    for dx in (0, 1):
+                        g.put(fx + (x - x0) * 2 + dx, fy + (y - y0) * 2 + dy, p)
+    # store-icon frame: rounded corners, a dark rim, a light top edge
+    R_ = 9
+    for y in range(S_):
+        for x in range(S_):
+            dx = max(R_ - x, x - (S_ - 1 - R_), 0)
+            dy = max(R_ - y, y - (S_ - 1 - R_), 0)
+            if dx and dy and math.hypot(dx, dy) > R_:
+                g.put(x, y, CLEAR)
+            elif dx and dy and math.hypot(dx, dy) > R_ - 1.2:
+                g.put(x, y, rgb('#07070C'))
+    for x in range(R_, S_ - R_):
+        g.put(x, 0, rgb('#07070C')); g.put(x, S_ - 1, rgb('#07070C'))
+        g.put(x, 1, rgb('#3A4466'))
+    for y in range(R_, S_ - R_):
+        g.put(0, y, rgb('#07070C')); g.put(S_ - 1, y, rgb('#07070C'))
+    return g
+
+
+_tiles_before_showcase = tiles
+
+
+def tiles():
+    out = _tiles_before_showcase()
+    out['logo_kata'] = logo_tile()
+    out['icon_kata'] = icon_tile()
+    return out

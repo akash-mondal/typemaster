@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>KATA - select screen showcase</title>
+<style>html,body{margin:0;height:100%;background:#05070E;display:grid;place-items:center}canvas{width:960px;height:720px;image-rendering:pixelated}</style>
+<canvas id="c" width="640" height="480"></canvas>
+<script type="module">
+// A stand-in for the TYPEMAXX select screen, drawn the way the host will draw it:
+// the trailer behind, the wordmark on top, four tiles with KATA's icon in the first.
+import KATA from '../../games/kata.js';
+const c = document.getElementById('c'), g = c.getContext('2d');
+const W = c.width, H = c.height;
+window.KATA = KATA;
+window.drawAt = (t) => {
+  g.clearRect(0, 0, W, H);
+  KATA.showcase.background(g, W, H, t);
+  KATA.showcase.logo(g, W / 2, H * 0.22, W * 0.46, t);
+  const size = W * 0.13, y = H * 0.66;
+  for (let i = 0; i < 4; i++) {
+    const x = W * 0.5 - size * 2.3 + i * size * 1.2;
+    if (i === 0) KATA.showcase.icon(g, x, y, size, t, true);
+    else {
+      g.fillStyle = 'rgba(40,120,90,0.35)'; g.fillRect(x, y, size, size);
+      g.strokeStyle = 'rgba(141,240,180,0.6)'; g.strokeRect(x + 0.5, y + 0.5, size - 1, size - 1);
+      g.fillStyle = '#8DF0B4'; g.font = (size * 0.4 | 0) + 'px monospace'; g.textAlign = 'center';
+      g.fillText(String(i + 1), x + size / 2, y + size * 0.65);
+    }
+  }
+  g.fillStyle = '#8DF0B4'; g.font = '14px monospace'; g.textAlign = 'center';
+  g.fillText('<- -> CHOOSE     ENTER SELECT     ESC BACK', W / 2, H * 0.92);
+};
+window.cap = async (name) => {
+  const r = await fetch('http://127.0.0.1:8766/' + name, { method: 'POST', body: c.toDataURL('image/png') });
+  return r.ok;
+};
+let t0 = null;
+function loop(now) { requestAnimationFrame(loop); if (window.manual) return; if (t0 == null) t0 = now; drawAt((now - t0) / 1000); }
+KATA.showcase.preload().then(() => requestAnimationFrame(loop));
+</script>
