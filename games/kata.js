@@ -41,14 +41,40 @@ const COL = {
   verm: '#C8342E', sky: '#9FB4D8', ice: '#BCD8EE', pink: '#F4B8CA',
 };
 
-const DIFFS = [
-  { name: 'CALM', temper: 'forgiving', speed: 18, lead: 150, hearts: 5, window: 2.3, roofs: [5, 6], hitCost: 1, cracks: 5, roninKills: false,
-    hz: ['duck', 'drop', 'block', 'guard'], kill: ['cut', 'hit', 'end', 'now'], hook: ['hook', 'rope', 'grip'] },
-  { name: 'STEADY', temper: 'even', speed: 28, lead: 124, hearts: 4, window: 1.75, roofs: [6, 7], hitCost: 1, cracks: 4, roninKills: false,
-    hz: ['duck', 'slide', 'block', 'parry'], kill: ['slash', 'strike', 'blade', 'sever'], hook: ['swing', 'reach', 'climb'] },
-  { name: 'SHARP', temper: 'unforgiving', speed: 40, lead: 102, hearts: 3, window: 1.25, roofs: [7, 9], hitCost: 2, cracks: 3, roninKills: true,
-    hz: ['slide', 'evade', 'parry', 'deflect'], kill: ['cleave', 'sunder', 'finish', 'strike'], hook: ['grapple', 'ascend', 'hurtle'] },
+// ---------------------------------------------------------------- the climb
+// One endless run. Difficulty rises with distance along a single curve and
+// stops rising at the cap: STAGE 1 is a stroll, STAGE 10 is the road at full
+// fury, and it never gets harder than that. Every new rule switches on at the
+// start of the stage that announces it.
+const CAP_ROOFS = 110;          // roofs to full difficulty
+const STAGE_ROOFS = 11;         // roofs per stage
+const MAX_STAGE = 10;
+const WORDS = [
+  { hz: ['duck', 'drop', 'block', 'guard'], kill: ['cut', 'hit', 'end', 'now'], hook: ['hook', 'rope', 'grip'] },
+  { hz: ['duck', 'slide', 'block', 'parry'], kill: ['slash', 'strike', 'blade', 'sever'], hook: ['swing', 'reach', 'climb'] },
+  { hz: ['slide', 'evade', 'parry', 'deflect'], kill: ['cleave', 'sunder', 'finish', 'strike'], hook: ['grapple', 'ascend', 'hurtle'] },
 ];
+const STAGE_NOTES = ['', 'the road begins', 'the city stirs', 'more blades on the roofs', 'the chasms widen',
+  'the tiles grow brittle', 'they strike twice', 'blades wait in pairs', 'shadows hide in wait',
+  'the ronin show no mercy', 'full fury'];
+function diffAt(roofs) { const x = clamp(roofs / CAP_ROOFS, 0, 1); return x * x * (3 - 2 * x); }
+function stageAt(roofs) { return Math.min(MAX_STAGE, 1 + Math.floor(roofs / STAGE_ROOFS)); }
+function tune(d) {
+  const tier = d < 0.34 ? 0 : d < 0.64 ? 1 : 2;
+  const ramp = (a, b) => clamp((d - a) / (b - a), 0, 1);
+  return Object.assign({
+    d, speed: lerp(16, 44, d), lead: 150, window: lerp(2.5, 1.15, d),
+    hitCost: d < 0.64 ? 1 : 2, cracks: d < 0.35 ? 5 : d < 0.64 ? 4 : 3, roninKills: d >= 0.895,
+    roofs: [Math.round(lerp(4, 7, d)), Math.round(lerp(6, 9, d))],
+    enemyMul: lerp(0.35, 1.45, d), heartMul: lerp(1.4, 0.55, d), grappleMul: lerp(0.4, 1.3, d), dropMul: lerp(0.3, 1.2, d),
+    snuff: lerp(0.6, 0.25, d), maxRun: d < 0.3 ? 1 : d < 0.7 ? 2 : 3,
+    twice: d >= 0.495 ? lerp(0.45, 0.7, ramp(0.495, 1)) : 0,
+    pairs: d >= 0.645 ? lerp(0.6, 0.9, ramp(0.645, 1)) : 0,
+    roninMul: d >= 0.645 ? 1.8 : 1,
+    ambush: d >= 0.78 ? lerp(0.4, 0.55, ramp(0.78, 1)) : 0,
+    laneJitter: lerp(4, 13, d), gapVar: lerp(14, 34, d), chasm: lerp(76, 96, d),
+  }, WORDS[tier]);
+}
 
 const RANKS = [
   { name: 'GENIN', tile: 'hanko_genin' },
@@ -185,7 +211,7 @@ const S = {
   loading: false, ready: false, error: null,
   M: null, img: null, tint: {}, fontY0: 0,
   mode: 'title', t: 0, lastSec: null, dt: 0,
-  sel: 0, diff: 1, rankBest: 0, daily: false, best: 0, titleWorld: 0,
+  sel: 0, rankBest: 0, daily: false, best: 0, bestStage: 0,
   R: null, modeT: 0,
   shake: 0, flash: null,
   ctx: null,
@@ -195,7 +221,14 @@ function loadRank() {
   try {
     S.rankBest = Math.max(0, Math.min(3, parseInt(localStorage.getItem('typemaxx.kata.rank') || '0', 10) || 0));
     S.best = parseInt(localStorage.getItem('typemaxx.kata.best') || '0', 10) || 0;
+    S.bestStage = parseInt(localStorage.getItem('typemaxx.kata.stage') || '0', 10) || 0;
   } catch (e) { S.rankBest = 0; S.best = 0; }
+}
+function saveStage(st) {
+  if (st <= S.bestStage) return false;
+  S.bestStage = st;
+  try { localStorage.setItem('typemaxx.kata.stage', String(st)); } catch (e) {}
+  return true;
 }
 function saveBest(score) {
   if (score <= S.best) return false;
@@ -678,11 +711,11 @@ function wordsOf(str) {
   return out;
 }
 
-function makeOpt(textStr, x, lane, rnd, wk, type) {
+function makeOpt(textStr, x, lane, rnd, wk, type, jitter) {
   const len = textStr.length;
   return {
     world: wk, text: textStr, len, x, lane, type,
-    ry: LANES[lane] + Math.round((rnd() - 0.5) * 10),
+    ry: LANES[lane] + Math.round((rnd() - 0.5) * 2 * (jitter || 5)),
     w: len * ADV + PADX * 2 + Math.round(rnd() * 10) * 4,
     seed: Math.floor(rnd() * 1e6),
     marks: new Uint8Array(len), flaw: new Uint8Array(len),
@@ -734,16 +767,22 @@ function makeHazard(kind, word, D, scale) {
   };
 }
 
-function addEnemy(opt, kind, rnd, D, wk) {
-  const late = wk === 'snow';        // in the snow they wait in the drifts and show late
-  const at = late ? Math.max(3, opt.len - 4) : clamp(Math.floor(opt.len * (0.35 + rnd() * 0.25)), 3, opt.len - 3);
+function addEnemy(opt, kind, rnd, D, wk, minAt) {
+  // in the snow they wait in the drifts and show late; later on, everywhere
+  const late = wk === 'snow' || rnd() < D.ambush;
+  let at = late ? Math.max(3, opt.len - 4) : clamp(Math.floor(opt.len * (0.35 + rnd() * 0.25)), 3, opt.len - 3);
+  if (minAt) { if (minAt > opt.len - 2) return false; at = Math.max(at, minAt); }
   const word = kind === 'kage' ? pick(D.hz.slice(0, 2), rnd) : pick(D.hz.slice(2), rnd);
   const hz = makeHazard(kind === 'kage' ? 'shuriken' : 'arrow', word, D, late ? 0.85 : 1);
   opt.enemy = { kind, at, state: 'waiting', hz, deadT: null, killWord: pick(D.kill, rnd), hidden: late };
   hz.owner = opt.enemy;
+  if (rnd() < D.twice) {
+    const w2 = kind === 'kage' ? pick(D.hz.slice(0, 2), rnd) : pick(D.hz.slice(2), rnd);
+    opt.enemy.hz2 = makeHazard(hz.kind, w2, D, 0.9);
+  }
   opt.w = Math.max(opt.w, opt.len * ADV + PADX * 2 + 36);
   // a blue word before he acts snuffs the post lantern: he never sees you
-  if (rnd() < 0.5) {
+  if (rnd() < D.snuff) {
     for (const wd of wordsOf(opt.text)) {
       if (wd.w.length >= 3 && wd.end <= at - 1 && freeSpan(opt, wd)) {
         opt.snuff = { start: wd.start, end: wd.end, state: 'pending', t: 0 };
@@ -751,15 +790,16 @@ function addEnemy(opt, kind, rnd, D, wk) {
       }
     }
   }
+  return true;
 }
 
 function newRun() {
-  const D = DIFFS[S.diff];
+  const D = tune(0);
   let seed = (Math.random() * 1e9) | 0;
   if (S.daily) {
     const d = new Date();
     const key = d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
-    seed = Math.floor(hash(key, 101 + S.diff) * 1e9);
+    seed = Math.floor(hash(key, 101) * 1e9);
   }
   const rnd = mulberry32(seed);
   S.R = {
@@ -768,7 +808,7 @@ function newRun() {
     nextX: 0, lane: 1, enemyRun: 0,
     si: 0, choice: 0, ci: 0, fromOpt: null, pending: false,
     drawX: 0, targetX: 0, cam: 0, jump: null, jumpY: 0,
-    hearts: D.hearts, maxHearts: D.hearts + 1,
+    hearts: 4, maxHearts: 5, stage: 1, stageBanner: null,
     segs: 0, combo: 0, maxCombo: 0, tier: 0,
     score: 0, typed: 0, errors: 0, start: 0, end: 0,
     hazard: null, enc: null, duel: null, grap: null, anim: null,
@@ -804,18 +844,22 @@ function ensureRoad() {
   }
 }
 
-function takeLine(wk) {
+function takeLine(wk, d) {
   const R = S.R, W = WORLDS[wk];
   const used = R.used[wk] || (R.used[wk] = []);
   let pool = W.lines.filter(l => used.indexOf(l) < 0);
   if (!pool.length) { used.length = 0; pool = W.lines.slice(); }
-  const line = pick(pool, R.rnd);
+  // early roofs lean short, later ones lean long
+  const a = pick(pool, R.rnd), b = pick(pool, R.rnd);
+  const longer = a.length >= b.length ? a : b, shorter = a.length >= b.length ? b : a;
+  const line = R.rnd() < 0.25 + 0.6 * (d || 0) ? longer : shorter;
   used.push(line);
   return line;
 }
 
 function genSegment(wk, seg) {
-  const R = S.R, D = R.D, rnd = R.rnd, W = WORLDS[wk];
+  const R = S.R, rnd = R.rnd, W = WORLDS[wk];
+  let D = tune(diffAt(R.slots.length));
   const count = randInt(D.roofs[0], D.roofs[1], rnd);
   const forkAt = rnd() < 0.8 ? randInt(2, Math.max(2, count - 2), rnd) : -1;
   let x = R.nextX, lane = R.lane, enemies = 0, lastGrapple = false;
@@ -830,26 +874,31 @@ function genSegment(wk, seg) {
       if (r < 0.34) lane = Math.max(0, lane - 1);
       else if (r < 0.68) lane = Math.min(2, lane + 1);
     }
+    D = tune(diffAt(R.slots.length));
     let type = pick(W.roofs, rnd);
     if (!quiet && lane === 2 && rnd() < 0.3) type = W.span;
-    const text = gate ? W.gate : takeLine(wk);
-    const opt = makeOpt(text, x, lane, rnd, wk, type);
+    const text = gate ? W.gate : takeLine(wk, D.d);
+    const opt = makeOpt(text, x, lane, rnd, wk, type, D.laneJitter);
     opt.gate = gate;
     if (R.pendingHook) { opt.hookPost = true; R.pendingHook = false; }
 
     if (!quiet) {
-      const w = W.w;
+      const w = W.w, m = D.enemyMul;
       const r = rnd();
-      const canEnemy = R.enemyRun < 2;
-      if (canEnemy && r < w.ronin && addGuard(opt)) { R.enemyRun++; enemies++; }
-      else if (canEnemy && r < w.ronin + w.kage) { addEnemy(opt, 'kage', rnd, D, wk); R.enemyRun++; enemies++; }
-      else if (canEnemy && r < w.ronin + w.kage + w.archer) { addEnemy(opt, 'archer', rnd, D, wk); R.enemyRun++; enemies++; }
+      const canEnemy = R.enemyRun < D.maxRun;
+      if (canEnemy && r < w.ronin * m * D.roninMul && addGuard(opt)) {
+        R.enemyRun++; enemies++;
+        // later on the ronin does not stand alone
+        if (rnd() < D.pairs) addEnemy(opt, rnd() < 0.5 ? 'kage' : 'archer', rnd, D, wk, opt.guard.end + 2);
+      }
+      else if (canEnemy && r < (w.ronin * D.roninMul + w.kage) * m) { addEnemy(opt, 'kage', rnd, D, wk); R.enemyRun++; enemies++; }
+      else if (canEnemy && r < (w.ronin * D.roninMul + w.kage + w.archer) * m) { addEnemy(opt, 'archer', rnd, D, wk); R.enemyRun++; enemies++; }
       else {
         R.enemyRun = 0;
-        if (w.drop && rnd() < w.drop) {
+        if (w.drop && rnd() < w.drop * D.dropMul) {
           opt.drop = makeHazard(wk === 'snow' ? 'icicle' : 'crate', pick(D.hz.slice(0, 2), rnd), D);
           opt.drop.at = clamp(Math.floor(opt.len * 0.5), 3, opt.len - 3);
-        } else if (rnd() < w.heart) {
+        } else if (rnd() < w.heart * D.heartMul) {
           opt.heart = { i: clamp(randInt(2, opt.len - 3, rnd), 1, opt.len - 1), taken: false };
         }
       }
@@ -858,12 +907,12 @@ function genSegment(wk, seg) {
     }
     R.slots.push({ kind: 'line', opts: [opt], seg, world: wk });
     segOpts.push(opt);
-    let gap = 22 + Math.round(rnd() * 24);
+    let gap = 22 + Math.round(rnd() * D.gapVar);
 
     // a chasm the hook must cross
-    if (!quiet && !lastGrapple && k < count - 1 && k !== forkAt && rnd() < W.w.grapple) {
+    if (!quiet && !lastGrapple && k < count - 1 && k !== forkAt && rnd() < W.w.grapple * D.grappleMul) {
       opt.grapple = { word: pick(D.hook, rnd) };
-      gap = 80 + Math.round(rnd() * 16);
+      gap = Math.round(D.chasm + rnd() * 12);
       R.pendingHook = true;
       lastGrapple = true;
     } else lastGrapple = false;
@@ -872,8 +921,8 @@ function genSegment(wk, seg) {
     // a fork in the road
     if (k === forkAt && !opt.grapple) {
       const pair = pick(W.forks, rnd);
-      const hi = makeOpt(pair[0], x, 0, rnd, wk, pick(W.roofs, rnd));
-      const lo = makeOpt(pair[1], x, 2, rnd, wk, pick(W.roofs, rnd));
+      const hi = makeOpt(pair[0], x, 0, rnd, wk, pick(W.roofs, rnd), 0);
+      const lo = makeOpt(pair[1], x, 2, rnd, wk, pick(W.roofs, rnd), 0);
       hi.ry = LANES[0]; lo.ry = LANES[2];
       hi.route = 'high'; lo.route = 'low';
       addGuard(hi);
@@ -1004,6 +1053,15 @@ function crack(o) {
 function advance(from, to, how) {
   const R = S.R;
   R.roofs++;
+  R.D = tune(diffAt(R.roofs));
+  const st = stageAt(R.roofs);
+  if (st > R.stage) {
+    R.stage = st;
+    R.stageBanner = { stage: st, t0: S.t };
+    R.score += 500 * st;
+    flash('rgba(244,185,61,0.3)', 0.35);
+    embers(R.drawX, footY(from) - 20, 18, COL.gold, 34);
+  }
   if (R.worldLog.length) R.worldLog[R.worldLog.length - 1].roofs++;
   if (!from.errs && !from.cracks && !from.holes.length) { R.cleanRoofs++; R.score += 150; }
   R.fromOpt = from;
@@ -1032,7 +1090,6 @@ function enterWorld(slot) {
   if (slot.seg % 5 === 0) {
     R.cleared++;
     R.score += 3000 * R.cleared;
-    R.loop = R.cleared;
     R.banner = { wk: slot.world, t0: S.t, cleared: R.cleared };
     flash('rgba(255,243,208,0.4)', 0.5);
     embers(R.drawX, footY(hereOpt()) - 20, 30, COL.gold, 40);
@@ -1283,6 +1340,14 @@ function resolveHazard(res) {
   } else {
     loseHeart('STRUCK DOWN', 1);
   }
+  // later enemies do not stop at one
+  if (e && e.hz2 && e.state === 'alive' && !R.dead) {
+    e.hz = e.hz2;
+    e.hz2 = null;
+    e.hz.owner = e;
+    e.at = Math.min(o.len - 2, R.ci + 3);
+    e.state = 'waiting';
+  }
   resumeLine(o);
 }
 
@@ -1531,7 +1596,7 @@ function updateRun(dt) {
   if (R.resumeOpt) { const o = R.resumeOpt; R.resumeOpt = null; resumeLine(o); }
 
   // the pursuit: faster every time the five roads come round again
-  const pace = D.speed * (1 + 0.12 * R.loop + 0.02 * R.seg) * (1 + 0.08 * R.tier);
+  const pace = D.speed * (1 + 0.08 * R.tier);
   if (!R.dead && R.stillT <= 0) R.cam += pace * wdt;
   if (R.dead) R.cam += D.speed * 0.2 * wdt;
 
@@ -1633,15 +1698,13 @@ function goResults() {
   R.acc = R.typed ? Math.round(100 * correct / R.typed) : 100;
   // the style score: what the leaderboard ranks
   R.style = Math.round(R.score * (0.5 + R.acc / 200) + R.roofs * 40);
-  let rank = 0;
-  if (R.cleared) {
-    if (R.acc >= 96 && R.wpm >= 55) rank = 3;
-    else if (R.acc >= 92 && R.wpm >= 38) rank = 2;
-    else if (R.acc >= 85 && R.wpm >= 22) rank = 1;
-  }
+  // rank is how far up the climb you got
+  const st = R.stage;
+  const rank = st >= MAX_STAGE && R.acc >= 90 ? 3 : st >= 7 ? 2 : st >= 4 ? 1 : 0;
   R.rank = rank;
   R.prevBest = S.rankBest;
-  R.newRank = R.cleared > 0 && saveRank(rank);
+  R.newRank = saveRank(rank);
+  R.newStage = saveStage(st);
   R.newBest = saveBest(R.style);
   setMode('results');
 }
@@ -1655,22 +1718,14 @@ function handleInput(k) {
   const m = S.mode;
 
   if (m === 'title') {
-    if (has('ArrowDown')) S.sel = (S.sel + 1) % 3;
-    if (has('ArrowUp')) S.sel = (S.sel + 2) % 3;
+    if (has('ArrowDown')) S.sel = (S.sel + 1) % 4;
+    if (has('ArrowUp')) S.sel = (S.sel + 3) % 4;
     if (k.enter) {
-      if (S.sel === 0) setMode('pace');
-      else if (S.sel === 1) setMode('howto');
+      if (S.sel === 0 || S.sel === 1) { S.daily = S.sel === 1; newRun(); setMode('count'); }
+      else if (S.sel === 2) setMode('howto');
       else exitGame();
     }
     if (has('Escape')) exitGame();
-    return;
-  }
-  if (m === 'pace') {
-    if (has('ArrowLeft')) S.diff = Math.max(0, S.diff - 1);
-    if (has('ArrowRight')) S.diff = Math.min(2, S.diff + 1);
-    if (has('ArrowUp') || has('ArrowDown') || has('Tab')) S.daily = !S.daily;
-    if (k.enter) { newRun(); setMode('count'); }
-    if (has('Escape')) setMode('title');
     return;
   }
   if (m === 'howto') {
@@ -1767,57 +1822,22 @@ function drawTitle() {
   const bob = Math.round(Math.sin(tt * 3.9) * 1.5);
   textC('large', 'KATA', 162, 16 + bob, 'verm', 3);
   textC('large', 'KATA', 160, 14 + bob, 'ink', 3);
-  textC('small', 'Five roads. One breath.', 160, 66, 'ink');
-  const items = ['START', 'HOW TO PLAY', 'BACK'];
-  for (let i = 0; i < 3; i++) {
-    const y = 88 + i * 18;
+  textC('small', 'One road. It never ends.', 160, 66, 'ink');
+  const items = ['START', 'DAILY ROAD', 'HOW TO PLAY', 'BACK'];
+  for (let i = 0; i < 4; i++) {
+    const y = 78 + i * 16;
     const on = S.sel === i;
-    rect(112, y + 1, 96, 15, 'rgba(4,6,12,0.55)');
-    text('large', items[i], 124, y, on ? 'gold' : 'ink');
-    if (on && ((tt * 2.4) | 0) % 2 === 0) text('large', '>', 112, y, 'hot');
+    rect(106, y + 1, 110, 15, 'rgba(4,6,12,0.55)');
+    text('large', items[i], 118, y, on ? 'gold' : 'ink');
+    if (on && ((tt * 2.4) | 0) % 2 === 0) text('large', '>', 106, y, 'hot');
   }
-  if (S.best > 0) textC('small', 'best  ' + S.best, 160, 146, 'gold');
+  if (S.sel === 1) textC('small', 'one road for every runner  ' + todayKey(), 160, 144, 'mute');
+  else if (S.best > 0) textC('small', 'best ' + S.best + '   stage ' + (S.bestStage >= MAX_STAGE ? 'MAX' : S.bestStage), 160, 144, 'gold');
 }
 
 function todayKey() {
   const d = new Date();
   return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
-}
-
-function drawPace() {
-  const tt = S.t;
-  const wk = drawTitleBackdrop(tt, tt * 10);
-  drawRoof(titleOpt(wk, 368), -24, 206);
-  rect(0, 0, LW, LH, 'rgba(4,6,12,0.55)');
-  textC('large', 'CHOOSE YOUR PACE', 160, 12, 'gold');
-  for (let i = 0; i < 3; i++) {
-    const D = DIFFS[i], on = S.diff === i;
-    const x = 12 + i * 102, y = 40 - (on ? 3 + Math.round(Math.sin(tt * 3.9)) : 0), w = 92, h = 124;
-    rect(x, y, w, h, on ? '#0C1220' : '#080B14');
-    frame1(x, y, w, h, on ? COL.hot : COL.shade);
-    textC('large', D.name, x + w / 2, y + 8, on ? 'ink' : 'dim');
-    textC('small', D.temper, x + w / 2, y + 28, on ? 'hot' : 'shade');
-    const tx = x + 10, tw = w - 20, ty = y + 46;
-    frame1(tx, ty, tw, 5, COL.shade);
-    const pos = wrapX(tt * D.speed * 1.4, tw - 4);
-    rect(tx + 2 + pos, ty + 1, 2, 3, COL.gold);
-    rect(tx + 1 + pos, ty, 4, 5, 'rgba(242,166,60,0.35)');
-    const hw = D.hearts * 10 - 1;
-    for (let k = 0; k < D.hearts; k++) blit(on ? 'kunai_full' : 'kunai_empty', x + w / 2 - hw / 2 + k * 10, y + 62);
-    textC('small', 'window ' + D.window.toFixed(1) + 's', x + w / 2, y + 86, on ? 'mute' : 'shade');
-    textC('small', 'pursuit ' + D.speed, x + w / 2, y + 98, on ? 'mute' : 'shade');
-    textC('small', D.roofs[0] + '-' + D.roofs[1] + ' roofs', x + w / 2, y + 110, on ? 'mute' : 'shade');
-  }
-  // the road: a fresh one, or the one everybody runs today
-  const y = 176;
-  rect(40, y, 240, 22, '#080B14');
-  frame1(40, y, 240, 22, S.daily ? COL.gold : COL.shade);
-  textC('large', S.daily ? 'DAILY ROAD  ' + todayKey() : 'FREE RUN', 160, y + 2, S.daily ? 'gold' : 'ink');
-  textC('small', S.daily ? 'one road for every runner today' : 'a new road every run', 160, y + 26, 'mute');
-  if (S.rankBest > 0) {
-    blit(RANKS[S.rankBest].tile, 4, 206);
-    text('small', RANKS[S.rankBest].name, 38, 222, 'gold');
-  }
 }
 
 function drawHowto() {
@@ -1827,7 +1847,7 @@ function drawHowto() {
   textC('large', 'THE WAY OF KATA', 160, 6, 'gold');
   const L = [
     ['ink', 'Type the words on the roofs to run.'],
-    ['ink', 'Fall behind the pursuit and it ends.'],
+    ['gold', 'The road never ends. It only gets harder.'],
     ['red', 'Wrong keys crack the tiles. Too many: fall.'],
     ['', ''],
     ['gold', 'A ronin guards a gold word: type it clean.'],
@@ -1839,7 +1859,7 @@ function drawHowto() {
     ['sky', 'Blue words snuff lanterns: go unseen.'],
     ['', ''],
     ['ink', 'Wide gaps: type the hook word to swing.'],
-    ['ink', 'At a fork, type your road\'s first letter.'],
+    ['ink', 'Fall behind the pursuit and it ends.'],
     ['gold', 'Gold words charge kata: Enter, its name.'],
   ];
   let y = 24;
@@ -1860,8 +1880,9 @@ function drawCount() {
   const u = S.t - S.modeT;
   const n = 3 - Math.floor(u / 0.7);
   const R = S.R;
-  textC('large', WORLDS[R.slots[0].world].name, 160, 52, 'ink');
-  if (R.daily) textC('small', 'DAILY ROAD ' + todayKey(), 160, 70, 'gold');
+  textC('large', 'STAGE 1', 160, 40, 'gold');
+  textC('large', WORLDS[R.slots[0].world].name, 160, 56, 'ink');
+  if (R.daily) textC('small', 'DAILY ROAD ' + todayKey(), 160, 74, 'gold');
   if (n >= 1) {
     const p = (u % 0.7) / 0.7;
     textC('large', String(n), 160, 90 - Math.round(p * 4), p < 0.5 ? 'gold' : 'ink', 3);
@@ -1877,17 +1898,20 @@ function drawResults() {
   const R = S.R, u = S.t - S.modeT;
   rect(0, 0, LW, LH, 'rgba(4,6,12,' + Math.min(0.8, u * 2).toFixed(2) + ')');
   if (u < 0.2) return;
-  const head = R.cleared ? 'THE FIVE ROADS' : R.dead ? R.dead.cause : 'RUN ENDED';
-  textC('large', head, 160, 8, R.cleared ? 'hot' : 'red', 2);
+  const head = R.dead ? R.dead.cause : 'RUN ENDED';
+  textC('large', head, 160, 8, 'red', 2);
   const rank = RANKS[R.rank];
   blitScaled(rank.tile, 14, 50, 2);
-  textC('large', rank.name, 44, 116, R.cleared ? 'gold' : 'shade');
-  if (R.newRank) textC('small', 'new rank', 44, 134, 'hot');
-  if (R.newBest) textC('small', 'best score', 44, 146, 'gold');
+  textC('large', rank.name, 44, 116, 'gold');
+  textC('small', 'stage ' + (R.stage >= MAX_STAGE ? 'MAX' : R.stage), 44, 134, 'ink');
+  if (R.newStage) textC('small', 'furthest yet', 44, 146, 'hot');
+  else if (R.newBest) textC('small', 'best score', 44, 146, 'gold');
+  if (R.newRank) textC('small', 'new rank', 44, 158, 'hot');
   const rows = [
     ['STYLE', String(R.style)], ['WPM', String(R.wpm)], ['ACCURACY', R.acc + '%'],
-    ['ROOFS', String(R.roofs)], ['KILLS', String(R.kills)], ['CAUGHT', String(R.catches + R.parries)],
-    ['DODGED', String(R.dodges)], ['HOOKED', String(R.grapples)], ['CLEAN', String(R.cleanRoofs)],
+    ['STAGE', R.stage >= MAX_STAGE ? 'MAX' : String(R.stage)], ['ROOFS', String(R.roofs)], ['KILLS', String(R.kills)],
+    ['CAUGHT', String(R.catches + R.parries)],
+    ['DODGED', String(R.dodges)], ['HOOKED', String(R.grapples)],
   ];
   for (let i = 0; i < rows.length; i++) {
     const y = 42 + i * 14;
@@ -2289,7 +2313,7 @@ function drawNinja() {
 function drawHud() {
   const R = S.R;
   const tt = S.t;
-  const show = Math.max(R.hearts, R.D.hearts);
+  const show = Math.max(R.hearts, 4);
   for (let i = 0; i < show; i++) blit(i < R.hearts ? 'kunai_full' : 'kunai_empty', 5 + i * 10, 4);
   if (R.hearts === 1 && ((tt * 4) | 0) % 2 === 0) frame1(0, 0, LW, LH, 'rgba(224,72,78,0.6)');
   // footing: the cracks on the roof underfoot
@@ -2313,7 +2337,13 @@ function drawHud() {
   textR('small', 'WPM ' + wpm, 314, 2, 'mute');
   textR('small', 'ACC ' + acc + '%', 314, 12, 'mute');
   textR('small', String(Math.round(R.score)), 314, 22, 'ink');
-  textR('small', 'ROOF ' + R.roofs + (R.cleared ? '  x' + (R.cleared + 1) : ''), 314, 32, 'shade');
+  const maxed = R.stage >= MAX_STAGE;
+  textR('small', maxed ? 'STAGE MAX' : 'STAGE ' + R.stage, 314, 32, maxed ? 'red' : 'lamp');
+  if (!maxed) {
+    const into = (R.roofs % STAGE_ROOFS) / STAGE_ROOFS;
+    rect(270, 42, 44, 1, '#1A222A');
+    rect(270, 42, Math.round(44 * into), 1, COL.lamp);
+  }
   if (R.tier > 0) {
     const col = R.tier >= 3 ? 'gold' : R.tier === 2 ? 'lamp' : 'hot';
     text('small', TIER_NAMES[R.tier] + '  ' + R.combo, 112, 20, col);
@@ -2373,7 +2403,13 @@ function drawOverlays() {
     // the ring flashes so the eye knows where the rope goes
     if (((tt * 6) | 0) % 2) frame1(ring.x - R.cam - 5, ring.y - 5, 11, 11, COL.gold);
   }
-  if (R.banner) {
+  // a banner never covers a word the player must type: it waits
+  const boxUp = R.hazard || (R.duel && R.duel.phase === 'type') || (R.grap && R.grap.phase === 'prompt') || R.menu;
+  if (boxUp) {
+    if (R.stageBanner) R.stageBanner.t0 += S.dt;
+    if (R.banner && tt >= R.banner.t0) R.banner.t0 += S.dt;
+  }
+  if (R.banner && !boxUp) {
     const u = tt - R.banner.t0;
     if (u > 2.6) R.banner = null;
     else if (u >= 0) {
@@ -2381,10 +2417,24 @@ function drawOverlays() {
       const a = u < 0.3 ? u / 0.3 : u > 2.1 ? (2.6 - u) / 0.5 : 1;
       const g = ctx();
       g.globalAlpha = clamp(a, 0, 1);
-      if (R.banner.cleared) textC('large', 'THE FIVE ROADS  x' + R.banner.cleared, 160, 44, 'gold');
-      rect(0, 62, LW, 30, 'rgba(4,6,12,0.55)');
-      textC('large', W.name, 160, 62, 'ink');
-      textC('small', W.sub, 160, 80, 'mute');
+      rect(0, 76, LW, 28, 'rgba(4,6,12,0.55)');
+      textC('large', W.name, 160, 75, 'ink');
+      textC('small', W.sub, 160, 92, 'mute');
+      g.globalAlpha = 1;
+    }
+  }
+  if (R.stageBanner && !boxUp) {
+    const u = tt - R.stageBanner.t0;
+    if (u > 2.4) R.stageBanner = null;
+    else {
+      const a = u < 0.2 ? u / 0.2 : u > 1.9 ? (2.4 - u) / 0.5 : 1;
+      const g = ctx();
+      g.globalAlpha = clamp(a, 0, 1);
+      const st = R.stageBanner.stage, maxed = st >= MAX_STAGE;
+      const pop = u < 0.25 ? Math.round((0.25 - u) * 12) : 0;
+      rect(0, 46, LW, 26, 'rgba(4,6,12,0.6)');
+      textC('large', maxed ? 'STAGE MAX' : 'STAGE ' + st, 160, 44 - pop, maxed ? 'red' : 'gold');
+      textC('small', STAGE_NOTES[st], 160, 62, maxed ? 'red' : 'ink');
       g.globalAlpha = 1;
     }
   }
@@ -2484,7 +2534,6 @@ const KATA = {
 
     switch (S.mode) {
       case 'title': drawTitle(); break;
-      case 'pace': drawPace(); break;
       case 'howto': drawHowto(); break;
       case 'count': drawCount(); break;
       case 'play': drawWorld(false); break;

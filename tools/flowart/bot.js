@@ -1,7 +1,7 @@
 // A typing bot for the local harness (play.html). It plays KATA through the same
 // input the engine hands the game, at a set speed and error rate, so a whole run
 // can be verified without a human. Load it from the console:
-//   await import('./bot.js'); oneRun(1, 5, 0.03, 9000)
+//   await import('./bot.js'); oneRun(5, 0.03, 9000)
 const BOT = { cps: 5, err: 0.03, acc: 0, choice: 0 };
 let rs = 987;
 const rr = () => { rs = (rs * 16807) % 2147483647; return rs / 2147483647; };
@@ -31,15 +31,21 @@ export function botFrame() {
   window.step(1, 1000 / 30);
 }
 
-export function oneRun(diff, cps, err, maxFrames) {
+export function oneRun(cps, err, maxFrames, daily) {
   const S = window.KATA.state;
-  S.diff = diff; S.daily = false; S.mode = 'title';
+  S.mode = 'title'; S.sel = daily ? 1 : 0;
   BOT.err = err; BOT.cps = cps; BOT.acc = 0;
-  for (let f = 0; f < maxFrames; f++) { botFrame(); if (S.mode === 'results') break; }
+  const stages = [];
+  for (let f = 0; f < maxFrames; f++) {
+    botFrame();
+    const R = S.R;
+    if (R && S.mode === 'play' && stages[R.stage] == null) stages[R.stage] = Math.round(S.t - R.start);
+    if (S.mode === 'results') break;
+  }
   const R = S.R;
-  return [['CALM', 'STEADY', 'SHARP'][diff], Math.round(cps * 12) + 'wpm', Math.round(err * 100) + '%err',
-    Math.round((R.end || S.t) - R.start) + 's', R.roofs + ' roofs', 'cleared ' + R.cleared,
-    R.dead ? R.dead.cause : 'alive', 'breaks ' + R.breaks, 'kills ' + R.kills].join(' | ');
+  return [Math.round(cps * 12) + 'wpm', Math.round(err * 100) + '%err',
+    Math.round((R.end || S.t) - R.start) + 's', 'stage ' + R.stage, R.roofs + ' roofs',
+    R.dead ? R.dead.cause : 'alive', 'kills ' + R.kills, 'stage times ' + stages.filter(x => x != null).join(',')].join(' | ');
 }
 
 Object.assign(window, { BOT, botFrame, oneRun });
