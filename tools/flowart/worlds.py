@@ -788,3 +788,63 @@ def tiles():
     out = _tiles_before_towers()
     out.update(tower_tiles())
     return out
+
+
+# ================================================================ WORLD SEALS
+# The kanji stamped on the title card as the road enters a world, brushed from
+# Yuji Boku (SIL OFL 1.1) like the kata: a paper-white glyph with an ink edge,
+# over a rough vermilion seal.
+WORLD_KANJI = {'city': '街', 'grove': '竹', 'snow': '雪', 'castle': '城', 'harbour': '港'}
+
+
+def seal_tiles():
+    import os
+    from PIL import ImageFont
+    font = ImageFont.truetype(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ref', 'brush', 'YujiBoku-Regular.ttf'), 34)
+    t = {}
+    BONE = rgb('#F2EEE2'); INK_ = rgb('#0A0A10')
+    for wk, ch in WORLD_KANJI.items():
+        g = G(44, 44)
+        m = font.getmask(ch, mode='1')
+        bb = font.getbbox(ch)
+        gw, gh = bb[2] - bb[0], bb[3] - bb[1]
+        ox, oy = (44 - gw) // 2 - bb[0], (44 - gh) // 2 - bb[1]
+        on = set()
+        for y in range(m.size[1]):
+            for x in range(m.size[0]):
+                if m.getpixel((x, y)):
+                    on.add((x + ox + bb[0], y + oy + bb[1]))
+        for (x, y) in on:
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1)):
+                if (x + dx, y + dy) not in on:
+                    g.put(x + dx, y + dy, INK_)
+        for (x, y) in on:
+            g.put(x, y, BONE)
+        t['wkanji_' + wk] = g
+    # the seal: a vermilion square with a worn edge and an inner line
+    rnd = random.Random(88)
+    g = G(52, 52)
+    V1, V2 = rgb('#C8342E'), rgb('#8A1A1E')
+    for y in range(52):
+        for x in range(52):
+            edge = min(x, y, 51 - x, 51 - y)
+            if edge < 1 and rnd.random() < 0.4:
+                continue
+            g.put(x, y, V1 if (edge > 3 or rnd.random() < 0.8) else V2)
+    for k in range(4, 48):
+        for (x, y) in ((k, 4), (k, 47), (4, k), (47, k)):
+            if rnd.random() < 0.85:
+                g.put(x, y, rgb('#E8A090'))
+    for _ in range(40):
+        g.put(rnd.randrange(3, 49), rnd.randrange(3, 49), V2)
+    t['wseal'] = g
+    return t
+
+
+_tiles_before_seals = tiles
+
+
+def tiles():
+    out = _tiles_before_seals()
+    out.update(seal_tiles())
+    return out

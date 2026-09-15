@@ -572,20 +572,21 @@ function drawVoid(wk, scroll, tt) {
 }
 
 // weather sits in front of the roofs but behind the HUD
-function drawWeather(wk, scroll, tt) {
+function drawWeather(wk, scroll, tt, surge) {
   const g = ctx();
+  const n = c => Math.round(c * (surge || 1));
   if (wk === 'city') {
-    for (let i = 0; i < 22; i++)
+    for (let i = 0; i < n(22); i++)
       blit('rain', wrapX(i * 53 - tt * 50 - scroll * 0.3, 340) - 10, wrapX(i * 37 + tt * 160, 190) - 10);
   } else if (wk === 'snow') {
-    for (let i = 0; i < 46; i++) {
+    for (let i = 0; i < n(46); i++) {
       const x = wrapX(i * 43 - scroll * 0.4 + Math.sin(tt * 0.8 + i) * 8, 330) - 5;
       const y = wrapX(i * 29 + tt * (14 + (i % 4) * 5), 250) - 5;
       g.fillStyle = i % 3 ? '#DCE6F4' : '#8A98B8';
       g.fillRect(Math.round(x), Math.round(y), i % 5 === 0 ? 2 : 1, i % 5 === 0 ? 2 : 1);
     }
   } else if (wk === 'castle') {
-    for (let i = 0; i < 26; i++) {
+    for (let i = 0; i < n(26); i++) {
       const x = wrapX(i * 61 - scroll * 0.45 - tt * 18 + Math.sin(tt * 1.4 + i) * 10, 340) - 10;
       const y = wrapX(i * 37 + tt * (18 + (i % 3) * 6), 250) - 5;
       g.fillStyle = i % 2 ? '#F4B8CA' : '#DC86A2';
@@ -593,7 +594,7 @@ function drawWeather(wk, scroll, tt) {
       if (((tt * 3 + i) | 0) % 2) g.fillRect(Math.round(x) + 1, Math.round(y) + 1, 1, 1);
     }
   } else if (wk === 'grove') {
-    for (let i = 0; i < 18; i++) {
+    for (let i = 0; i < n(18); i++) {
       const x = wrapX(i * 83 - scroll * 0.3 + Math.sin(tt * 0.6 + i * 1.3) * 14, 340) - 10;
       const y = 40 + (i * 53) % 140 + Math.cos(tt * 0.7 + i) * 8;
       const on = Math.sin(tt * 2.2 + i * 1.7) > 0.1;
@@ -604,7 +605,7 @@ function drawWeather(wk, scroll, tt) {
       g.fillRect(Math.round(x), Math.round(y), 1, 1);
     }
   } else if (wk === 'harbour') {
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < n(10); i++) {
       const x = wrapX(i * 97 - scroll * 0.6 - tt * 30, 360) - 20;
       const y = 176 + ((i * 13) % 14) - ((tt * 20 + i * 7) % 24);
       g.fillStyle = 'rgba(240,210,200,0.35)';
@@ -658,7 +659,21 @@ function drawRoof(o, x, ry, sink) {
     blit(name, x + w - dx, ry - dy);
   }
   if (st.wallLantern) blit('lantern', x + w - 12, wallTop + 20);
-  if (o.gate) blit('gate_torii', x + Math.round(w / 2) - 30, ry - 50);
+  if (o.gate) {
+    const near = S.R ? clamp(1 - Math.abs(x + w / 2 - (S.R.drawX - S.R.cam)) / 160, 0, 1) : 0;
+    if (near > 0) {
+      const g = ctx(), cx = x + w / 2, cy = ry - 26;
+      const th = THEME[o.world] || THEME.city;
+      const grad = g.createRadialGradient(cx, cy, 2, cx, cy, 60);
+      const a = near * (0.45 + Math.sin(S.t * 5) * 0.12);
+      grad.addColorStop(0, hexA(th.ring, a));
+      grad.addColorStop(0.45, hexA(th.ring, a * 0.35));
+      grad.addColorStop(1, hexA(th.ring, 0));
+      g.fillStyle = grad;
+      g.fillRect(Math.round(cx - 60), Math.round(cy - 60), 120, 120);
+    }
+    blit('gate_torii', x + Math.round(w / 2) - 30, ry - 50);
+  }
   return { x: kx, y: wallTop + 3, w: kw, h: 14, textY: wallTop + 6 };
 }
 
@@ -826,6 +841,7 @@ function newRun() {
     kills: 0, parries: 0, dodges: 0, catches: 0, powers: 0, lanterns: 0, grapples: 0,
     snuffed: 0, cleanRoofs: 0, roofs: 0, breaks: 0, cleared: 0, worldLog: [],
     trail: [], lastLandT: -9, climbY: 0, camY: 0, vert: null, towerBanner: null, lastTower: -9,
+    cross: null, crossedSeg: 0, rings: [], card: null,
   };
   const R = S.R;
   ensureRoad();
@@ -834,7 +850,8 @@ function newRun() {
   R.drawX = R.targetX = charX(o0, 0) + ADV / 2;
   R.cam = R.drawX - D.lead;
   R.seg = 0;
-  R.banner = { wk: o0.world, t0: S.t + 2.2 };
+  R.banner = null;
+  R.card = { wk: o0.world, t0: S.t + 2.3 };
   R.worldLog.push({ wk: o0.world, roofs: 0, kills: 0 });
 }
 
@@ -1119,12 +1136,12 @@ function enterWorld(slot) {
   if (slot.seg % 5 === 0) {
     R.cleared++;
     R.score += 3000 * R.cleared;
-    R.banner = { wk: slot.world, t0: S.t, cleared: R.cleared };
+    R.banner = null;
     flash('rgba(255,243,208,0.4)', 0.5);
     embers(R.drawX, ninjaY() - 20, 30, COL.gold, 40);
   } else {
     // coming off a tower, the new world is named once he lands
-    R.banner = { wk: slot.world, t0: S.t + (R.vert ? 1.9 : 0) };
+    R.banner = null;          // the crossing's card names the world
   }
 }
 
@@ -1702,6 +1719,7 @@ function updateRun(dt) {
   if (R.grap && R.grap.vertical) updateGrappleV(R.grap.phase === 'prompt' ? tdt : wdt);
   else updateGrapple(R.grap && R.grap.phase === 'prompt' ? tdt : wdt);
   updateTower(dt, wdt);
+  updateCross();
 
   // weapons flying back to their owners
   for (let i = R.flying.length - 1; i >= 0; i--) {
@@ -1833,15 +1851,17 @@ function drawTitleBackdrop(tt, scroll) {
   const period = 7, idx = Math.floor(tt / period) % WORLD_KEYS.length;
   const u = (tt % period) / period;
   const wk = WORLD_KEYS[idx], nk = WORLD_KEYS[(idx + 1) % WORLD_KEYS.length];
-  BACKDROP[wk](scroll, tt);
-  const fade = clamp((u - 0.88) / 0.12, 0, 1);
-  if (fade > 0) {
-    const g = ctx();
-    g.globalAlpha = fade;
-    BACKDROP[nk](scroll, tt);
-    g.globalAlpha = 1;
-  }
-  return fade > 0.5 ? nk : wk;
+  const cu = clamp((u - 0.8) / 0.2, 0, 1);
+  const front = cu > 0 ? lerp(LW + 70, -90, easeIO(cu)) : LW + 80;
+  clipLeft(front, () => BACKDROP[wk](scroll, tt));
+  clipRight(front, () => BACKDROP[nk](scroll, tt));
+  S.titleFront = { front, u: cu, nk };
+  return front < LW / 2 ? nk : wk;
+}
+// drawn over the menu's roof, like a crossing in the run
+function drawTitleFront() {
+  const f = S.titleFront;
+  if (f && f.front > -90 && f.front < LW + 70) FRONTS[f.nk](f.front, f.u, S.t);
 }
 const titleOpt = (wk, w) => ({ w, type: TITLE_ROOF[wk], seed: 7, world: wk });
 
@@ -1861,6 +1881,7 @@ function drawTitle() {
   put(nClip, nF, nX, nY);
   if (ft >= 1.24 && ft < 1.52) put('slash', (ft - 1.24) / 0.28 * 3, 178, 172);
   drawWeather(wk, tt * 14, tt);
+  drawTitleFront();
 
   const bob = Math.round(Math.sin(tt * 3.9) * 1.5);
   textC('large', 'KATA', 162, 16 + bob, 'verm', 3);
@@ -2362,6 +2383,324 @@ function putFlip(name, i, x, y, alpha) {
   g.restore();
 }
 
+
+// ---------------------------------------------------------------- crossings
+// Entering a world is a set piece. The torii is the portal: once it is well in
+// view, the new world's own weather front sweeps across the screen and takes
+// the old world with it - rain, mist, blizzard, a petal storm, a tidal wave.
+// Passing under the gate sets off a shock ring and a burst in the new world's
+// colours, and an ink-brush card stamps the world's seal and writes its name.
+const CROSS_DUR = 1.55;
+const THEME = {
+  city: { burst: ['#9FB4D8', '#E8F4EC', '#F2A63C'], ring: '#9FB4D8', name: 'gold' },
+  grove: { burst: ['#E8F890', '#8DF0B4', '#5E8A34'], ring: '#C8E890', name: 'hot' },
+  snow: { burst: ['#FFFFFF', '#DCE6F4', '#BCD8EE'], ring: '#DCE6F4', name: 'ice' },
+  castle: { burst: ['#F4B8CA', '#DC86A2', '#F4B93D'], ring: '#F4B8CA', name: 'pink' },
+  harbour: { burst: ['#E8D0D8', '#6A8AC8', '#F2A05A'], ring: '#F2A05A', name: 'lamp' },
+};
+function hexA(h, a) {
+  const n = parseInt(h.slice(1), 16);
+  return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + clamp(a, 0, 1).toFixed(3) + ')';
+}
+const easeIO = u => u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+
+function gateOf(seg) {
+  const R = S.R;
+  for (let si = Math.max(0, R.si - 4); si < R.slots.length; si++) {
+    const sl = R.slots[si];
+    if (sl.seg === seg && sl.opts[0].gate) return sl.opts[0];
+    if (sl.seg > seg) break;
+  }
+  return null;
+}
+
+function updateCross() {
+  const R = S.R;
+  let C = R.cross;
+  if (!C) {
+    const sp = R.spans;
+    for (let i = 1; i < sp.length; i++) {
+      if (sp[i].x0 > R.cam + LW + 140 || sp[i].seg <= (R.crossedSeg ?? 0)) continue;
+      const gate = gateOf(sp[i].seg);
+      if (!gate) continue;
+      R.cross = C = { from: sp[i - 1].wk, to: sp[i].wk, seg: sp[i].seg, gate, t0: null, passed: false };
+      break;
+    }
+    if (!C) return;
+  }
+  const gx = C.gate.x + C.gate.w / 2;
+  // the front goes when the gate is plainly in view, or the ninja is upon it
+  if (C.t0 == null && (gx - R.cam < 250 || R.drawX > C.gate.x - 20)) C.t0 = S.t;
+  if (!C.passed && R.drawX >= gx && !R.vert) {
+    C.passed = true;
+    if (C.t0 == null) C.t0 = S.t - CROSS_DUR * 0.6;
+    const th = THEME[C.to], fy = footY(C.gate);
+    for (let k = 0; k < 3; k++) embers(gx, fy - 30, 18, th.burst[k], 34);
+    R.rings.push({ x: gx, y: fy - 26, t0: S.t, col: th.ring });
+    R.rings.push({ x: gx, y: fy - 26, t0: S.t + 0.12, col: '#FFFFFF' });
+    shake(3);
+    R.hitstop = Math.max(R.hitstop, 0.07);
+    R.card = { wk: C.to, t0: S.t + 0.15 };
+  }
+  if (C.t0 != null && S.t - C.t0 > CROSS_DUR + 0.2 && C.passed) {
+    R.crossedSeg = C.seg;
+    R.cross = null;
+  }
+}
+
+// the backdrop as the crossing stands: the old world left of the front, the new right
+function crossFront(C) {
+  if (!C || C.t0 == null) return { front: LW + 80, u: 0 };
+  const u = clamp((S.t - C.t0) / CROSS_DUR, 0, 1);
+  return { front: lerp(LW + 70, -90, easeIO(u)), u };
+}
+
+function clipRight(front, fn) {
+  if (front >= LW) return;
+  const g = ctx();
+  g.save();
+  g.beginPath();
+  g.rect(Math.max(0, Math.round(front)), -200, LW + 200, LH + 400);
+  g.clip();
+  fn();
+  g.restore();
+}
+function clipLeft(front, fn) {
+  if (front <= 0) return;
+  const g = ctx();
+  g.save();
+  g.beginPath();
+  g.rect(-10, -200, Math.min(LW, Math.round(front)) + 10, LH + 400);
+  g.clip();
+  fn();
+  g.restore();
+}
+
+// ---- the fronts
+const FRONTS = {
+  city(fx, u, tt) {
+    const g = ctx();
+    // storm-cloud lip riding the front
+    for (let x = Math.round(fx) - 70; x < fx + 40; x += 2) {
+      const d = 1 - Math.abs(x - fx + 15) / 55;
+      if (d <= 0) continue;
+      const h = 12 + d * 26 + Math.sin(x * 0.2 + tt * 3) * 3;
+      g.fillStyle = d > 0.5 ? '#26304A' : '#3A4868';
+      g.fillRect(x, 0, 2, Math.round(h));
+    }
+    // the rain curtain
+    for (let i = 0; i < 70; i++) {
+      const x = fx - 45 + hash(i, 1) * 80;
+      const y = ((hash(i, 2) * 260 + tt * 420) % 260) - 10;
+      const ln = 8 + hash(i, 3) * 12;
+      drawLine(x, y, x - ln * 0.35, y + ln, i % 4 ? '#6E86B0' : '#C8D8F0');
+    }
+    // lightning as the front passes the middle
+    const lu = Math.abs(u - 0.47);
+    if (lu < 0.05) {
+      let x = fx + 12, y = 0;
+      g.fillStyle = '#F4F8FF';
+      for (let k = 0; k < 9; k++) {
+        const nx = x + (hash(k, 7) - 0.5) * 18, ny = y + 14 + hash(k, 8) * 8;
+        drawLine(x, y, nx, ny, '#F4F8FF');
+        drawLine(x + 1, y, nx + 1, ny, '#9FB4D8');
+        x = nx; y = ny;
+      }
+      rect(0, 0, LW, LH, 'rgba(220,230,255,' + (0.35 * (1 - lu / 0.05)).toFixed(2) + ')');
+    }
+  },
+  grove(fx, u, tt) {
+    const g = ctx();
+    // a rolling wall of mist, dithered so it stays soft
+    for (let x = Math.round(fx) - 80; x < fx + 30; x += 2) {
+      const d = 1 - Math.abs(x - fx + 25) / 55;
+      if (d <= 0) continue;
+      for (let y = 0; y < LH; y += 2) {
+        const w = Math.sin(y * 0.05 + tt * 1.5 + x * 0.02) * 0.15;
+        if (BAYER4[(y >> 1) % 4][(x >> 1) % 4] / 16 < d * 0.9 + w) {
+          g.fillStyle = d > 0.6 ? '#D8E4C4' : '#A8BC94';
+          g.fillRect(x, y, 2, 2);
+        }
+      }
+    }
+    // bamboo rushing past in the foreground
+    for (let k = 0; k < 4; k++) {
+      const x = fx - 60 + ((k * 37 - tt * 180) % 90 + 90) % 90;
+      g.fillStyle = '#0E1A12';
+      g.fillRect(Math.round(x), 0, 4, LH);
+      g.fillStyle = '#2E4A30';
+      for (let y = (k * 11) % 26; y < LH; y += 26) g.fillRect(Math.round(x) - 1, y, 6, 2);
+    }
+    // fireflies spilling out of the mist
+    for (let i = 0; i < 24; i++) {
+      const x = fx + 10 + hash(i, 4) * 60 + Math.sin(tt * 3 + i) * 6;
+      const y = 30 + hash(i, 5) * 170 + Math.cos(tt * 2 + i) * 6;
+      if (Math.sin(tt * 6 + i) > -0.2) { rect(x - 1, y - 1, 3, 3, 'rgba(214,240,120,0.3)'); rect(x, y, 1, 1, '#F0FFA0'); }
+    }
+  },
+  snow(fx, u, tt) {
+    const g = ctx();
+    // the whiteout wall
+    for (let x = Math.round(fx) - 60; x < fx + 30; x += 2) {
+      const d = 1 - Math.abs(x - fx + 15) / 45;
+      if (d <= 0) continue;
+      for (let y = 0; y < LH; y += 2) {
+        if (BAYER4[(y >> 1) % 4][(x >> 1) % 4] / 16 < d * 0.95) {
+          g.fillStyle = d > 0.55 ? '#F4F8FF' : '#B8C8E0';
+          g.fillRect(x, y, 2, 2);
+        }
+      }
+    }
+    // snow streaking sideways in the wind
+    for (let i = 0; i < 90; i++) {
+      const x = fx + 70 - ((hash(i, 1) * 200 + tt * 520) % 200);
+      const y = hash(i, 2) * LH;
+      rect(x, y, 4 + hash(i, 3) * 10, 1, i % 3 ? '#F4F8FF' : '#9AA8C4');
+    }
+    // frost creeping in at the edges of the screen
+    const k = Math.sin(u * Math.PI);
+    for (let i = 0; i < 44; i++) {
+      const side = i % 4, len = (6 + hash(i, 9) * 22) * k, p = hash(i, 10);
+      const x0 = side === 0 ? 0 : side === 1 ? LW : p * LW, y0 = side < 2 ? p * LH : side === 2 ? 0 : LH;
+      const ang = (side === 0 ? 0 : side === 1 ? Math.PI : side === 2 ? Math.PI / 2 : -Math.PI / 2) + (hash(i, 11) - 0.5) * 0.9;
+      drawLine(x0, y0, x0 + Math.cos(ang) * len, y0 + Math.sin(ang) * len, '#DCEAF8');
+    }
+  },
+  castle(fx, u, tt) {
+    const g = ctx();
+    // a band of sunset light riding ahead of the storm
+    for (let k = 0; k < 4; k++) {
+      const w = 90 - k * 20;
+      rect(fx - w / 2 + 20, 0, w, LH, 'rgba(255,170,110,' + (0.07 + k * 0.05).toFixed(2) + ')');
+    }
+    // the petal storm
+    const flare = clamp(1 - Math.abs(u - 0.5) / 0.14, 0, 1);
+    if (flare > 0) {
+      const cx = fx + 10, cy = 60;
+      for (let k = 0; k < 14; k++) {
+        const a = k / 14 * Math.PI * 2 + tt * 0.6;
+        drawLine(cx, cy, cx + Math.cos(a) * 120 * flare, cy + Math.sin(a) * 120 * flare, k % 2 ? 'rgba(255,220,160,0.5)' : 'rgba(255,180,120,0.35)');
+      }
+      rect(0, 0, LW, LH, 'rgba(255,200,150,' + (0.16 * flare).toFixed(2) + ')');
+    }
+    for (let i = 0; i < 360; i++) {
+      const spread = 40 + hash(i, 6) * 130;
+      const x = fx + (hash(i, 1) - 0.35) * spread + Math.sin(tt * 5 + i) * 7;
+      const y = ((hash(i, 2) * 260 + tt * (80 + hash(i, 3) * 90)) % 260) - 10;
+      g.fillStyle = i % 3 === 0 ? '#FFE0EA' : i % 3 === 1 ? '#F4B8CA' : '#DC86A2';
+      g.fillRect(Math.round(x), Math.round(y), i % 7 === 0 ? 3 : 2, i % 7 === 0 ? 2 : 1);
+      if (((tt * 8 + i) | 0) % 2) g.fillRect(Math.round(x) + 1, Math.round(y) + 1, 1, 1);
+    }
+    // a war banner whipping past
+    const bx = Math.round(fx - 30 - ((tt * 240) % 50));
+    rect(bx, 20, 2, LH, '#1A1010');
+    for (let y = 0; y < 90; y += 2) {
+      const wave = Math.round(Math.sin(y * 0.08 + tt * 12) * 3);
+      rect(bx + 2, 24 + y, 18 + wave, 2, y > 30 && y < 50 ? '#F4E8D0' : '#B02A2A');
+    }
+  },
+  harbour(fx, u, tt) {
+    const g = ctx();
+    // a wave breaking across the screen: deep body, lighter face, foam lip
+    const top = 40;
+    for (let y = top; y < LH; y += 2) {
+      const lean = (LH - y) * 0.36;
+      const wx = Math.round(fx + lean + Math.sin(y * 0.08 + tt * 7) * 3);
+      const depth = (y - top) / (LH - top);
+      g.fillStyle = '#1A0C24'; g.fillRect(wx - 70, y, 30, 2);
+      g.fillStyle = '#2A1434'; g.fillRect(wx - 40, y, 18, 2);
+      g.fillStyle = depth < 0.5 ? '#5A3060' : '#44203E'; g.fillRect(wx - 22, y, 14, 2);
+      g.fillStyle = '#8A5A80'; g.fillRect(wx - 8, y, 5, 2);
+      g.fillStyle = y < top + 18 ? '#FFFFFF' : ((y >> 1) + ((tt * 20) | 0)) % 5 ? '#E8D0D8' : '#FFFFFF';
+      g.fillRect(wx - 3, y, 4, 2);
+      if (hash(y, (tt * 12) | 0) < 0.25) { g.fillStyle = '#FFFFFF'; g.fillRect(wx + 2 + Math.round(hash(y, 3) * 6), y, 2, 1); }
+    }
+    // the curl throwing itself over, and the spray off it
+    const cx = fx + (LH - top) * 0.36, cy = top;
+    for (let a = 0; a < 28; a++) {
+      const t = a / 28 * Math.PI * 1.3;
+      const r = 16 - a * 0.25;
+      rect(cx - 12 + Math.cos(t) * r, cy + 10 - Math.sin(t) * r, 3, 3, a % 3 ? '#FFFFFF' : '#E8D0D8');
+    }
+    for (let i = 0; i < 70; i++) {
+      const age = (tt * 1.4 + hash(i, 1)) % 1;
+      const x = cx - 20 + hash(i, 2) * 50 + age * 50;
+      const y = cy - Math.sin(age * Math.PI) * (26 + hash(i, 3) * 44) + age * 40;
+      rect(x, y, i % 5 ? 1 : 2, i % 5 ? 1 : 2, i % 2 ? '#FFFFFF' : '#C8B8D8');
+    }
+  },
+};
+const BAYER4 = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
+
+function drawRings() {
+  const R = S.R;
+  for (let i = R.rings.length - 1; i >= 0; i--) {
+    const r = R.rings[i], age = S.t - r.t0;
+    if (age < 0) continue;
+    if (age > 0.6) { R.rings.splice(i, 1); continue; }
+    const rad = 4 + (1 - Math.pow(1 - age / 0.6, 3)) * 80;
+    const g = ctx();
+    g.globalAlpha = 1 - age / 0.6;
+    g.fillStyle = r.col;
+    const n = 64;
+    for (let k = 0; k < n; k++) {
+      const a = k / n * Math.PI * 2;
+      g.fillRect(Math.round(r.x - R.cam + Math.cos(a) * rad), Math.round(r.y + Math.sin(a) * rad * 0.7), 2, 1);
+    }
+    g.globalAlpha = 1;
+  }
+}
+
+// ---- the title card: an ink stroke, the seal, the name
+function drawCard(c) {
+  const tt = S.t, u = tt - c.t0;
+  if (u < 0) return;
+  if (u > 2.7) { S.R.card = null; return; }
+  const W = WORLDS[c.wk];
+  const bin = easeIO(clamp(u / 0.32, 0, 1)), bout = easeIO(clamp((u - 2.3) / 0.4, 0, 1));
+  const x0 = Math.round(LW * bout), x1 = Math.round(LW * bin);
+  const g = ctx();
+  const Y0 = 48, Y1 = 92;
+  for (let x = x0; x < x1; x += 2) {
+    const top = Y0 + Math.round(hash(x, 1) * 4 + Math.sin(x * 0.05) * 2);
+    const bot = Y1 - Math.round(hash(x, 2) * 4 - Math.sin(x * 0.07) * 2);
+    g.fillStyle = 'rgba(6,6,10,0.9)';
+    g.fillRect(x, top, 2, bot - top);
+  }
+  // the wet leading edge of the stroke, and its drips
+  if (bin < 1) {
+    for (let k = 0; k < 6; k++) rect(x1 + hash(k, 3) * 6, Y0 + 6 + k * 6, 2 + hash(k, 4) * 4, 2, 'rgba(6,6,10,0.9)');
+  }
+  for (let k = 0; k < 5; k++) {
+    const dx = 40 + k * 55, dl = Math.min(10, Math.max(0, (u - 0.3 - k * 0.1) * 20));
+    if (dx < x1 && dx > x0) rect(dx, Y1 - 1, 1, dl * hash(k, 5), 'rgba(6,6,10,0.9)');
+  }
+  if (x1 - x0 < 60) return;
+  // the seal stamps down
+  const su = clamp((u - 0.2) / 0.22, 0, 1);
+  if (su > 0 && x0 < 30) {
+    const s = su < 1 ? lerp(2.4, 1, 1 - Math.pow(1 - su, 3)) : 1;
+    const sealT = tile('wseal'), kan = tile('wkanji_' + c.wk);
+    const cx = 44, cy = 70;
+    const jol = su >= 1 && u - 0.42 < 0.12 ? Math.round(Math.sin(u * 90) * 1.5) : 0;
+    g.globalAlpha = clamp(su * 2, 0, 1);
+    g.drawImage(S.img, sealT[0], sealT[1], sealT[2], sealT[3], Math.round(cx - 20 * s) + jol, Math.round(cy - 20 * s), Math.round(40 * s), Math.round(40 * s));
+    g.drawImage(S.img, kan[0], kan[1], kan[2], kan[3], Math.round(cx - 17 * s) + jol, Math.round(cy - 17 * s), Math.round(34 * s), Math.round(34 * s));
+    g.globalAlpha = 1;
+    if (su >= 1 && !c.stamped) {
+      c.stamped = true;
+      shake(2);
+      for (let k = 0; k < 10; k++) S.R.fx.push({ dot: true, x: S.R.cam + cx + (hash(k, 20) - 0.5) * 40, y: cy + (hash(k, 21) - 0.5) * 40 - S.R.camY, vx: (hash(k, 22) - 0.5) * 60, vy: (hash(k, 23) - 0.5) * 60, life: 0.4, t0: S.t, col: '#C8342E' });
+    }
+  }
+  // the name, written a letter at a time
+  if (x0 < 90) {
+    const n = Math.floor(clamp((u - 0.42) / 0.5, 0, 1) * W.name.length);
+    text('large', W.name.slice(0, n), 72, 52, THEME[c.wk].name);
+    if (u > 0.95) text('small', W.sub, 73, 72, 'mute');
+  }
+}
+
 // ---------------------------------------------------------------- the run
 function drawWorld(still, noHud) {
   const R = S.R;
@@ -2370,24 +2709,22 @@ function drawWorld(still, noHud) {
   const g0 = ctx();
 
   // the backdrop crossfades across a world's gate, and sinks as the ninja climbs
-  const { cur, next } = worldAt(cam + 160);
-  let fade = 0;
-  if (next) fade = clamp(1 - (next.x0 - (cam + 160)) / 220, 0, 1);
+  const C = R.cross;
+  // the world is the last one crossed into, never guessed from the camera
+  let settled = R.spans[0].wk;
+  for (const sp of R.spans) if (sp.seg <= (R.crossedSeg || 0)) settled = sp.wk;
+  const fromWk = C ? C.from : settled, toWk = C ? C.to : fromWk;
+  const { front, u: cu0 } = crossFront(C);
   const lift = Math.round(Math.min(R.camY * 0.3, 130));
   if (lift > 0) {
-    rect(0, 0, LW, lift + 1, SKY_TOP[cur.wk]);
+    rect(0, 0, LW, lift + 1, SKY_TOP[front < LW / 2 ? toWk : fromWk]);
     g0.save();
     g0.translate(0, lift);
   }
-  BACKDROP[cur.wk](cam, tt);
-  if (fade > 0) {
-    g0.globalAlpha = fade;
-    BACKDROP[next.wk](cam, tt);
-    g0.globalAlpha = 1;
-  }
-  const here = fade > 0.5 ? next.wk : cur.wk;
-  drawVoid(here, cam, tt);
+  clipLeft(front, () => { BACKDROP[fromWk](cam, tt); drawVoid(fromWk, cam, tt); });
+  clipRight(front, () => { BACKDROP[toWk](cam, tt); drawVoid(toWk, cam, tt); });
   if (lift > 0) g0.restore();
+  const here = front < LW / 2 ? toWk : fromWk;
 
   // everything in the world moves with the vertical camera
   g0.save();
@@ -2468,13 +2805,13 @@ function drawWorld(still, noHud) {
     put(f.clip, i, f.x - cam, f.y);
   }
   if (R.vert && R.vert.phase !== 'dive') drawThreat(R.vert);
+  drawRings();
   g0.restore();
 
-  if (fade > 0 && fade < 1) {
-    g0.globalAlpha = 1 - fade; drawWeather(cur.wk, cam, tt);
-    g0.globalAlpha = fade; drawWeather(next.wk, cam, tt);
-    g0.globalAlpha = 1;
-  } else drawWeather(here, cam, tt);
+  const surge = C && C.t0 != null ? 1 + 2.2 * Math.sin(clamp((S.t - C.t0) / (CROSS_DUR + 1.2), 0, 1) * Math.PI) : 1;
+  clipLeft(front, () => drawWeather(fromWk, cam, tt));
+  clipRight(front, () => drawWeather(toWk, cam, tt, surge));
+  if (front > -90 && front < LW + 70) FRONTS[toWk](front, cu0, tt);
 
   if (R.tier >= 1 && !R.dead && !R.vert) {
     const nx = R.drawX - cam;
@@ -2935,6 +3272,10 @@ function drawOverlays() {
       g.globalAlpha = 1;
     }
   }
+  if (R.card) {
+    if (boxUp) R.card.t0 += S.dt;
+    else drawCard(R.card);
+  }
   if (R.towerBanner && !boxUp) {
     const u = tt - R.towerBanner.t0;
     if (u > 2.4) R.towerBanner = null;
@@ -2948,7 +3289,8 @@ function drawOverlays() {
       g.globalAlpha = 1;
     }
   } else if (R.towerBanner) R.towerBanner.t0 += S.dt;
-  if (R.stageBanner && !boxUp) {
+  if (R.stageBanner && R.card) R.stageBanner.t0 += S.dt;   // one card at a time
+  if (R.stageBanner && !boxUp && !R.card) {
     const u = tt - R.stageBanner.t0;
     if (u > 2.4) R.stageBanner = null;
     else {
