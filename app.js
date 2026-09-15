@@ -34,6 +34,9 @@ if(typeof window !== 'undefined'){
 if(typeof window !== 'undefined'){
   window.TYPEMAXX_INPUT = INPUT;
   window.TYPEMAXX_THREE = THREE;   // for backgrounds written in the page
+  // the addons this engine already loaded, from the SAME three: a page background
+  // that uses these never needs its own import, and never gets a second copy
+  window.TYPEMAXX_ADDONS = { RoomEnvironment, RoundedBoxGeometry, OrbitControls };
   window.TYPEMAXX_TEXT = TEXT;     // font/spacing order, fit, glow, safe width
   // The board a screen is showing, and how to change it. showBoard(name, dir)
   // slides the current keyboard off in -dir and rides the new one in from +dir,
@@ -1885,6 +1888,31 @@ function bgPointer(x, y, inside){
   for(const L of bgLayers)
     if(L.inst && typeof L.inst.setPointer === 'function') L.inst.setPointer(x, y, inside);
 }
+
+// What the backdrop is doing, for debugging a background that looks wrong:
+//   TYPEMAXX_BG()  { layers, fading, spec, brightness, size, luminance }
+// luminance is the average brightness of the backdrop as drawn, 0 (black) to
+// 1 (white): a white room should read well above 0.7.
+window.TYPEMAXX_BG = () => {
+  const front = bgLayers[bgLayers.length - 1];
+  let luminance = null;
+  if(bgComposite && bgComposite.width > 1){
+    const c = document.createElement('canvas'); c.width = c.height = 24;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.drawImage(bgComposite, 0, 0, 24, 24);
+    const d = g.getImageData(0, 0, 24, 24).data;
+    let sum = 0;
+    for(let i = 0; i < d.length; i += 4) sum += (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+    luminance = +(sum / (d.length / 4)).toFixed(3);
+  }
+  return {
+    layers: bgLayers.length, fading: bgLayers.length > 1,
+    spec: front ? (front.spec.factory ? 'factory ' + (front.spec.factory.name || '(anonymous)') : 'module ' + front.spec.module) : null,
+    brightness: front ? (front.spec.brightness || 1) : null,
+    size: front ? [front.canvas.width, front.canvas.height] : null,
+    luminance,
+  };
+};
 
 if(typeof window !== 'undefined'){
   // Swap the backdrop at runtime. Pass null to clear it. The outgoing scene is
