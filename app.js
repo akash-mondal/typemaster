@@ -1762,9 +1762,23 @@ function bgMakeCanvas(){
   return c;
 }
 
+// Accepts a spec object, or the factory function itself:
+//   TYPEMAXX_SET_BACKGROUND({ factory, brightness })
+//   TYPEMAXX_SET_BACKGROUND({ module: '/bg.js', export: 'makeRoom' })
+//   TYPEMAXX_SET_BACKGROUND(makeRoom)
+function bgSpec(spec){
+  if(typeof spec === 'function') return { factory: spec };
+  if(!spec || typeof spec !== 'object')
+    throw new Error('background: expected a factory function or { factory } / { module, export }, got ' + typeof spec);
+  if(typeof spec.factory !== 'function' && typeof spec.module !== 'string')
+    throw new Error('background: the spec has neither a `factory` function nor a `module` URL. '
+      + 'Pass the factory itself, TYPEMAXX_SET_BACKGROUND(makeRoom), or { factory: makeRoom }.');
+  return spec;
+}
+
 async function bgCreate(spec){
-  const canvas = bgMakeCanvas();
   let make = spec.factory;
+  const canvas = bgMakeCanvas();
   if(typeof make !== 'function'){
     // Resolve against the PAGE, not this file: app.js is served from a CDN, so
     // '/x.js' would otherwise resolve against the CDN origin and 404.
@@ -1885,7 +1899,15 @@ if(typeof window !== 'undefined'){
       return false;
     });
   let bgGen = 0;
+  const sameBg = (a, b) => a && b && (a.factory ? a.factory === b.factory : (!b.factory && a.module === b.module && a.export === b.export));
   const setBackground = async (spec, fadeSeconds) => {
+    if(spec) spec = bgSpec(spec);
+    // the same background already showing, or already on its way in: nothing to rebuild
+    const front = bgLayers[bgLayers.length - 1];
+    if(spec && front && !front.destroyed && sameBg(front.spec, spec)){
+      if(spec.brightness != null) front.spec.brightness = spec.brightness;
+      return true;
+    }
     const gen = ++bgGen;
     bgFadeDur = (fadeSeconds == null) ? 0.8 : Math.max(0, fadeSeconds);
     if(bgLayers[1]){ bgDestroy(bgLayers[1]); bgLayers.length = 1; bgFadeT = 0; }
