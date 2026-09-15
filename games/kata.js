@@ -25,7 +25,12 @@
  * Art: assets/flow/atlas.png + manifest.json, loaded relative to this module.
  */
 
+import KataAudio from './kata-audio.js';
+
 const BASE = new URL('../assets/flow/', import.meta.url).href;
+// sound: every call is safe before the audio unlocks - it simply does nothing
+const SND = (name, o) => KataAudio.sfx(name, o);
+const MUS = KataAudio.music;
 const LW = 320, LH = 240;
 
 // ---------------------------------------------------------------- tuning
@@ -1031,11 +1036,12 @@ function setTier() {
   const R = S.R;
   let t = 0;
   for (let i = 0; i < TIERS.length; i++) if (R.combo >= TIERS[i]) t = i;
-  if (t > R.tier) embers(R.drawX, ninjaY() - 18, 14, COL.gold, 30);
+  if (t > R.tier) { embers(R.drawX, ninjaY() - 18, 14, COL.gold, 30); SND('tier_up', { vol: 0.5 }); }
   R.tier = t;
 }
 function goodKey() {
   const R = S.R;
+  SND('key', { vol: 0.22, pitch: 1 + R.tier * 0.06, vary: 0.04 });
   R.combo++;
   R.maxCombo = Math.max(R.maxCombo, R.combo);
   R.score += 10 * (1 + R.tier);
@@ -1053,6 +1059,10 @@ function mistake() {
 function die(cause) {
   const R = S.R;
   if (R.dead) return;
+  KataAudio.sting('death');
+  MUS.setMuffle(0.85);
+  SND(cause === 'OVERRUN' || cause === 'FELL' || R.vert ? 'body_fall' : 'slash_hit', { vol: 0.8 });
+  stopThreatLoop();
   R.dead = { cause, t0: S.t };
   R.end = S.t;
   R.anim = null;
@@ -1067,6 +1077,8 @@ function loseHeart(cause, n) {
   const o = hereOpt();
   if (R.shadowT > 0) { embers(R.drawX, ninjaY() - 18, 8, COL.sky, 10); return; }
   R.hearts -= n || 1;
+  SND('hurt', { vol: 0.7, duck: 0.3 });
+  SND('heart_lost', { vol: 0.4, delay: 0.08 });
   R.anim = { clip: 'ninja_stumble', t0: S.t, dur: 0.42 };
   shake(3);
   flash('rgba(224,40,50,0.35)', 0.22);
@@ -1079,6 +1091,7 @@ function crack(o) {
   const R = S.R;
   if (!o || R.dead) return;
   o.cracks++;
+  SND('crack', { vol: 0.55 });
   o.crackXs.push(Math.round(R.drawX - o.x) + ((o.cracks * 7) % 9) - 4);
   shake(1);
   if (o.cracks >= R.D.cracks) {
@@ -1087,6 +1100,7 @@ function crack(o) {
     o.holes.push(Math.round(R.drawX - o.x));
     R.breaks++;
     R.stunT = 0.45;
+    SND('roof_break', { vol: 0.8, duck: 0.5 });
     addFx('dust', R.drawX, ninjaY() + 1);
     embers(R.drawX, ninjaY(), 10, COL.shade, 4);
     loseHeart('FELL THROUGH', 1);
@@ -1102,6 +1116,7 @@ function advance(from, to, how) {
   if (st > R.stage) {
     R.stage = st;
     R.stageBanner = { stage: st, t0: S.t };
+    KataAudio.sting('stage');
     R.score += 500 * st;
     flash('rgba(244,185,61,0.3)', 0.35);
     embers(R.drawX, ninjaY() - 20, 18, COL.gold, 34);
@@ -1158,6 +1173,7 @@ function enterWorld(slot) {
 
 function startJump(toOpt) {
   const R = S.R;
+  SND('jump', { vol: 0.45 });
   const from = R.fromOpt;
   const x1 = charX(toOpt, 0) + ADV / 2;
   const up = footY(from) - footY(toOpt);
@@ -1189,6 +1205,7 @@ function chooseFork(ch) {
   if (idx < 0) { mistake(); flash('rgba(224,72,78,0.18)', 0.12); return false; }
   R.pending = false;
   R.choice = idx;
+  SND('ui_select', { vol: 0.4 });
   if (slot.tower) {
     // up the other corner: shimmy across the face
     const side = slot.opts[idx].side, V = R.vert;
@@ -1215,6 +1232,7 @@ function typeChar(ch) {
 
   if (!ok) {
     mistake();
+    SND('key_wrong', { vol: 0.5 });
     opt.errs++;
     opt.flaw[i] = 1;
     opt.errT = S.t;
@@ -1234,6 +1252,7 @@ function typeChar(ch) {
   if (p && p.state === 'pending' && R.ci === p.end) {
     p.state = clean(p) ? 'won' : 'lost';
     if (p.state === 'won') {
+      SND('power_word', { vol: 0.45 });
       R.segs = Math.min(4, R.segs + 1);
       R.powers++;
       R.score += 100;
@@ -1245,6 +1264,7 @@ function typeChar(ch) {
     sn.state = clean(sn) ? 'out' : 'lost';
     sn.t = S.t;
     if (sn.state === 'out') {
+      SND('snuff', { vol: 0.6 });
       R.snuffed++;
       R.score += 200;
       embers(opt.x + 8, footY(opt) - 20, 10, COL.shade, 16);
@@ -1263,6 +1283,8 @@ function typeChar(ch) {
 // ---------------------------------------------------------------- the ronin
 function startEncounter(opt, g, win) {
   const R = S.R;
+  SND(win ? 'slash_hit' : 'ronin_draw', { vol: 0.8 });
+  if (win) SND('enemy_die', { vol: 0.6, delay: 0.25 });
   g.state = 'fighting';
   R.enc = { opt, g, win, t0: S.t };
   R.hitstop = 0.12;
@@ -1335,6 +1357,12 @@ function resumeLine(opt) {
 // ---------------------------------------------------------------- hazards
 function startHazard(opt, hz) {
   const R = S.R;
+  if (hz.kind === 'shuriken') { SND('throw', { vol: 0.6 }); SND('shuriken_whirr', { vol: 0.35, delay: 0.1 }); }
+  else if (hz.kind === 'arrow') { SND('arrow_draw', { vol: 0.5 }); SND('arrow_loose', { vol: 0.6, delay: hz.T * 0.55 }); }
+  else if (hz.kind === 'icicle') SND('icicle_crack', { vol: 0.6 });
+  else if (hz.kind === 'crate') SND('crate_creak', { vol: 0.6 });
+  else if (hz.kind === 'debris') SND('crack', { vol: 0.7 });
+  if (opt.tower && hz.owner) SND('shutter', { vol: 0.5 });
   hz.state = 'active';
   hz.t = 0;
   hz.typed = '';
@@ -1379,6 +1407,7 @@ function resolveHazard(res) {
   if (e && e.state === 'attacking') e.state = 'alive';
   if (res === true) {
     if (hz.kind === 'shuriken') {
+      SND('deflect', { vol: 0.8 });
       // the blade meets the star and throws it off
       if (!o.tower) R.anim = { clip: 'ninja_strike', t0: S.t - 0.08, dur: 0.28 };
       const cx = nx + (o.tower ? 6 : 17), cy = fy - 23;
@@ -1388,10 +1417,12 @@ function resolveHazard(res) {
       shake(1.5);
       flash('rgba(255,244,210,0.22)', 0.1);
     } else if (hz.kind === 'arrow') {
+      SND('clash', { vol: 0.7 });
       R.anim = { clip: 'ninja_block', t0: S.t, dur: 0.34 };
       addFx('spark', nx + 10, fy - 22);
       sparkBurst(nx + 12, fy - 22, 14, -1);
     } else if (hz.kind === 'icicle') {
+      SND('icicle_shatter', { vol: 0.6 });
       R.anim = { clip: o.tower ? vclip('ninja_hang', o.world) : 'ninja_slide', t0: S.t, dur: 0.5 };
       embers(nx + 6, fy - 2, 10, COL.ice, 20);
     } else {
@@ -1402,6 +1433,8 @@ function resolveHazard(res) {
     R.score += 150;
   } else if (res === 'catch' || res === 'parry') {
     R.anim = { clip: res === 'catch' ? 'ninja_catch' : 'ninja_block', t0: S.t, dur: 0.36 };
+    SND(res === 'catch' ? 'catch' : 'parry', { vol: 0.8 });
+    SND('throw', { vol: 0.5, delay: 0.08, pitch: 1.3 });
     addFx('spark', nx + 10, fy - 22);
     if (res === 'parry') sparkBurst(nx + 12, fy - 22, 18, 1);
     if (res === 'catch') R.catches++; else R.parries++;
@@ -1441,6 +1474,7 @@ function updateHazard(hdt) {
 // Anyone still standing when you reach him attacks: type his word first.
 function startDuel(opt) {
   const R = S.R, e = opt.enemy;
+  SND('duel_start', { vol: 0.7 });
   R.duel = {
     opt, e, word: e.killWord, typed: '', t: 0,
     T: R.D.window + e.killWord.length * 0.16 + 0.5, phase: 'type', t0: S.t, badT: -9,
@@ -1458,7 +1492,7 @@ function duelChar(ch) {
   if (ch.toLowerCase() === need) {
     d.typed += need;
     goodKey();
-    if (d.typed === d.word) { d.phase = 'strike'; d.t0 = S.t; R.hitstop = 0.08; }
+    if (d.typed === d.word) { d.phase = 'strike'; d.t0 = S.t; R.hitstop = 0.08; SND('kill_word', { vol: 0.9, duck: 0.35 }); SND('enemy_die', { vol: 0.55, delay: 0.3 }); }
   } else {
     d.typed = '';
     d.badT = S.t;
@@ -1476,6 +1510,7 @@ function updateDuel(ddt) {
     d.t += ddt;
     if (d.t >= d.T) {
       d.phase = 'hit'; d.t0 = S.t;
+      SND('slash_hit', { vol: 0.8 });
       addFx('slash', R.drawX + 8, ninjaY() - 20);
       loseHeart('CUT DOWN', R.D.hitCost);
     }
@@ -1528,6 +1563,7 @@ function grapChar(ch) {
     goodKey();
     if (gp.typed === gp.word) {
       gp.phase = 'throw'; gp.t0 = S.t;
+      SND('hook_throw', { vol: 0.7 });
       if (!gp.vertical) R.drawX = R.targetX;
       R.anim = { clip: 'ninja_throw', t0: S.t, dur: 0.3 };
     }
@@ -1544,12 +1580,13 @@ function updateGrapple(gdt) {
   const ring = hookRing(gp.next);
   if (gp.phase === 'prompt') {
     gp.t += gdt;
-    if (gp.t >= gp.T) { gp.phase = 'fall'; gp.t0 = S.t; gp.x0 = R.drawX; gp.y0 = footY(gp.opt); }
+    if (gp.t >= gp.T) { gp.phase = 'fall'; gp.t0 = S.t; gp.x0 = R.drawX; gp.y0 = footY(gp.opt); SND('slip', { vol: 0.7 }); }
   } else if (gp.phase === 'throw') {
     if (S.t - gp.t0 >= 0.3) {
       const hx = R.drawX, hy = footY(gp.opt) - 20;
       const lx = charX(gp.next, 0) + ADV / 2, ly = footY(gp.next) - 20;
       gp.phase = 'swing'; gp.t0 = S.t;
+      SND('hook_catch', { vol: 0.7 }); SND('rope_swing', { vol: 0.6 });
       gp.a0 = Math.atan2(hx - ring.x, hy - ring.y);
       gp.r0 = Math.hypot(hx - ring.x, hy - ring.y);
       gp.a1 = Math.atan2(lx - ring.x, ly - ring.y);
@@ -1597,6 +1634,7 @@ function openMenu() {
   const R = S.R;
   if (R.dead || R.enc || R.slam) return;
   R.menu = { buf: '', t0: S.t, deniedT: -9 };
+  SND('kata_menu', { vol: 0.5 });
 }
 function menuChar(ch) {
   const R = S.R;
@@ -1615,6 +1653,7 @@ function cast(k) {
   R.segs -= k.cost;
   R.menu = null;
   R.slam = { k, t0: S.t };
+  SND('kata_' + k.name.toLowerCase(), { vol: 0.9, duck: 0.6 });
   R.hitstop = 0.3;
   shake(4);
   flash('rgba(255,243,208,0.8)', 0.12);
@@ -1694,6 +1733,7 @@ function updateRun(dt) {
     R.drawX = lerp(j.x0, j.x1, u);
     R.jumpY = lerp(j.y0, y1, u) - Math.sin(u * Math.PI) * j.h;
     if (u >= 1) {
+      SND(R.vert && R.vert.phase === 'dive' ? 'land' : 'land', { vol: R.vert ? 0.8 : 0.5 });
       R.jump = null;
       R.drawX = j.x1;
       R.lastLandT = S.t;
@@ -1719,6 +1759,7 @@ function updateRun(dt) {
     const lx = opt.tower ? R.drawX : charX(opt, opt.heart.i) + ADV / 2;
     if (opt.tower ? R.ci > opt.heart.i : R.drawX >= lx - 3) {
       opt.heart.taken = true;
+      SND('heart_pick', { vol: 0.55 });
       R.hearts = Math.min(R.maxHearts, R.hearts + 1);
       R.lanterns++;
       R.score += 200;
@@ -1742,6 +1783,7 @@ function updateRun(dt) {
   else updateGrapple(R.grap && R.grap.phase === 'prompt' ? tdt : wdt);
   updateTower(dt, wdt);
   updateCross();
+  updateSound(dt);
 
   // weapons flying back to their owners
   for (let i = R.flying.length - 1; i >= 0; i--) {
@@ -1749,6 +1791,7 @@ function updateRun(dt) {
     if (S.t - f.t0 >= f.dur) {
       R.flying.splice(i, 1);
       f.enemy.state = 'dead';
+      SND('enemy_die', { vol: 0.6 });
       f.enemy.deadT = S.t;
       R.kills++; logKill();
       R.score += 300;
@@ -1773,6 +1816,42 @@ function updateRun(dt) {
   if (R.dead && S.t - R.dead.t0 > 1.8) goResults();
 }
 
+// ---------------------------------------------------------------- the score follows the run
+const STEP_SOUND = {
+  town: 'step_tile', inn: 'step_tile', temple: 'step_tile', shrine: 'step_tile', tower: 'step_tile',
+  keep: 'step_tile', turretwall: 'step_tile', sakurawall: 'step_tile',
+  hut: 'step_bamboo', minka: 'step_bamboo', deck: 'step_bamboo',
+  snowtown: 'step_snow', snowtemple: 'step_snow', snowpine: 'step_snow',
+  warehouse: 'step_wood', boat: 'step_wood', bridge: 'step_wood', pier: 'step_wood',
+};
+function updateSound(dt) {
+  const R = S.R;
+  if (!KataAudio.ready) return;
+  const o = curOpt();
+  // footsteps, one a stride
+  if (!R.jump && !R.vert && !R.dead && !R.grap && o) {
+    if (R.stepX == null || Math.abs(R.drawX - R.stepX) > 30) R.stepX = R.drawX;
+    if (Math.abs(R.drawX - R.stepX) >= 17) { R.stepX = R.drawX; SND(STEP_SOUND[o.type] || 'step_tile', { vol: 0.28, vary: 0.12 }); }
+  } else R.stepX = null;
+  // intensity: rise at once, settle only after a few calm seconds
+  let want = R.stage >= 3 || R.tier >= 1 ? 1 : 0;
+  for (let si = R.si; si < Math.min(R.slots.length, R.si + 3); si++) {
+    for (const q of R.slots[si].opts) {
+      const e = q.enemy, g = q.guard;
+      const alive = (e && e.state !== 'dead' && e.state !== 'dying') || (g && g.state !== 'dead');
+      if (alive && (q.tower ? Math.abs(q.ry - ninjaY()) < FH * 2.2 : q.x - R.drawX < 230)) want = Math.max(want, 2);
+    }
+  }
+  if (R.tier >= 2) want = Math.max(want, 2);
+  if (R.hazard || R.duel || R.enc || R.tier >= 3 || (R.vert && R.vert.rise - R.climbY < 60)) want = 3;
+  if (want >= MUS.intensity) { R.calmT = 0; MUS.setIntensity(want); }
+  else { R.calmT = (R.calmT || 0) + dt; if (R.calmT > 2.8) { R.calmT = 0; MUS.setIntensity(MUS.intensity - 1); } }
+  MUS.setTag('climb', !!(R.vert && R.vert.phase === 'climb'));
+  MUS.setTag('danger', R.hearts === 1 && !R.dead);
+  const muffle = R.dead ? 0.85 : R.menu ? 0.55 : R.stillT > 0 ? 0.6 : 0;
+  if (muffle !== R.muffle) { R.muffle = muffle; MUS.setMuffle(muffle); }
+}
+
 function goResults() {
   const R = S.R;
   const mins = Math.max(0.05, (R.end - R.start) / 60);
@@ -1789,10 +1868,18 @@ function goResults() {
   R.newRank = saveRank(rank);
   R.newStage = saveStage(st);
   R.newBest = saveBest(R.style);
+  stopThreatLoop();
+  MUS.setMuffle(0);
+  MUS.setTag('climb', false); MUS.setTag('danger', false);
+  MUS.play('results', { now: true, fade: 1.2 });
+  if (R.newRank) KataAudio.sting('rank');
   setMode('results');
 }
 
-function setMode(m) { S.mode = m; S.modeT = S.t; }
+function setMode(m) {
+  if (m === 'title' && S.mode !== 'title' && S.mode !== 'howto') { stopThreatLoop(); MUS.setMuffle(0); MUS.play('menu', { now: S.mode === 'results' || S.mode === 'count', fade: 1 }); }
+  S.mode = m; S.modeT = S.t;
+}
 
 // ---------------------------------------------------------------- input
 function handleInput(k) {
@@ -1801,8 +1888,11 @@ function handleInput(k) {
   const m = S.mode;
 
   if (m === 'title') {
+    if (has('ArrowDown') || has('ArrowUp')) SND('ui_move', { vol: 0.4, vary: 0 });
     if (has('ArrowDown')) S.sel = (S.sel + 1) % 4;
     if (has('ArrowUp')) S.sel = (S.sel + 3) % 4;
+    if (k.enter) SND(S.sel === 3 ? 'ui_back' : 'ui_select', { vol: 0.5, vary: 0 });
+    if (has('Escape')) SND('ui_back', { vol: 0.5, vary: 0 });
     if (k.enter) {
       if (S.sel === 0 || S.sel === 1) { S.daily = S.sel === 1; newRun(); setMode('count'); }
       else if (S.sel === 2) setMode('howto');
@@ -1812,7 +1902,7 @@ function handleInput(k) {
     return;
   }
   if (m === 'howto') {
-    if (k.enter || has('Escape')) setMode('title');
+    if (k.enter || has('Escape')) { SND('ui_back', { vol: 0.5, vary: 0 }); setMode('title'); }
     return;
   }
   if (m === 'count') {
@@ -1967,6 +2057,11 @@ function drawCount() {
   const u = S.t - S.modeT;
   const n = 3 - Math.floor(u / 0.7);
   const R = S.R;
+  if (R.countBeat !== n) {
+    R.countBeat = n;
+    if (n >= 1) SND('count_tick', { vol: 0.7, vary: 0, pitch: 1 + (3 - n) * 0.12 });
+    if (n === 3) MUS.stop(0.6);
+  }
   textC('large', 'STAGE 1', 160, 40, 'gold');
   textC('large', WORLDS[R.slots[0].world].name, 160, 56, 'ink');
   if (R.daily) textC('small', 'DAILY ROAD ' + todayKey(), 160, 74, 'gold');
@@ -1976,6 +2071,10 @@ function drawCount() {
   }
   if (u >= 2.1) {
     R.start = S.t;
+    SND('count_go', { vol: 0.8 });
+    MUS.setMuffle(0);
+    MUS.setIntensity(0);
+    MUS.play(R.slots[0].world, { now: true, fade: 0.2 });
     setMode('play');
   }
 }
@@ -2103,6 +2202,9 @@ function ninjaY() {
 
 function enterTower(T, from) {
   const R = S.R;
+  KataAudio.sting('tower');
+  SND('tower_enter', { vol: 0.7 });
+  R.threatLoop = KataAudio.loop('threat_' + T.style.threat, { vol: 0.05, fade: 1 });
   R.vert = { tower: T, phase: 'enter', t0: S.t, side: 'left', rise: T.baseY + 175, bars: 0, shimmy: null };
   R.towerBanner = { name: T.style.name, t0: S.t };
   const x1 = climbX(T, 'left'), y1 = T.baseY;
@@ -2112,8 +2214,15 @@ function enterTower(T, from) {
   R.climbY = y1;
 }
 
+function stopThreatLoop() {
+  const R = S.R;
+  if (R && R.threatLoop) { R.threatLoop.stop(1.2); R.threatLoop = null; }
+}
 function leaveTower(from) {
   const R = S.R, V = R.vert;
+  stopThreatLoop();
+  KataAudio.sting('summit');
+  SND('mantle', { vol: 0.7 });
   V.phase = 'summit';
   V.t0 = S.t;
   R.drawX = V.tower.x + V.tower.w / 2 - 20;
@@ -2163,6 +2272,9 @@ function updateTower(dt, wdt) {
       V.dist = (V.dist || 0) + Math.abs(R.climbY - before);
       if (Math.abs(R.climbY - before) > 0.05) V.lastMoveT = S.t;
       if (moving && S.t - (V.chipT || 0) > 0.14) { V.chipT = S.t; climbChips(T, V.side); }
+      if ((V.dist || 0) - (V.gripDist || 0) >= 14) { V.gripDist = V.dist; SND(T.wk === 'city' || T.wk === 'castle' ? 'climb_metal' : 'climb_grip', { vol: 0.35 }); }
+      // the threat grows louder as it closes
+      if (R.threatLoop) R.threatLoop.set(clamp(1 - (V.rise - R.climbY) / 175, 0.05, 1) * 0.6, 0.2);
     }
     // the threat rises from below; it never falls far behind
     if (!R.dead && R.stillT <= 0) V.rise -= R.D.speed * 0.42 * (1 + 0.08 * R.tier) * wdt;
@@ -2175,6 +2287,7 @@ function updateTower(dt, wdt) {
       // the dive: off the roof and down to the next rooftop
       const next = curOpt() || R.slots[R.si].opts[0];
       V.phase = 'dive';
+      SND('glide', { vol: 0.6 });
       V.t0 = S.t;
       V.camFrom = R.camY;
       const x1 = charX(next, 0) + ADV / 2;
@@ -2217,11 +2330,11 @@ function updateGrappleV(gdt) {
   const out = V.side === 'right' ? 1 : -1;
   if (gp.phase === 'prompt') {
     gp.t += gdt;
-    if (gp.t >= gp.T) { gp.phase = 'fall'; gp.t0 = S.t; gp.y0 = R.climbY; }
+    if (gp.t >= gp.T) { gp.phase = 'fall'; gp.t0 = S.t; gp.y0 = R.climbY; SND('slip', { vol: 0.7 }); }
     R.jumpY = R.climbY;
   } else if (gp.phase === 'throw') {
     R.jumpY = R.climbY;
-    if (S.t - gp.t0 >= 0.3) { gp.phase = 'swing'; gp.t0 = S.t; gp.y0 = R.climbY; gp.x0 = R.drawX; }
+    if (S.t - gp.t0 >= 0.3) { gp.phase = 'swing'; gp.t0 = S.t; gp.y0 = R.climbY; gp.x0 = R.drawX; SND('hook_catch', { vol: 0.7 }); SND('rope_swing', { vol: 0.6 }); }
   } else if (gp.phase === 'swing') {
     // out around the overhang and up over it
     const u = clamp((S.t - gp.t0) / 0.7, 0, 1);
@@ -2459,9 +2572,15 @@ function updateCross() {
   }
   const gx = C.gate.x + C.gate.w / 2;
   // the front goes when the gate is plainly in view, or the ninja is upon it
-  if (C.t0 == null && (gx - R.cam < 250 || R.drawX > C.gate.x - 20)) C.t0 = S.t;
+  if (C.t0 == null && (gx - R.cam < 250 || R.drawX > C.gate.x - 20)) {
+    C.t0 = S.t;
+    MUS.play(C.to, { sting: 'gate', fade: 1.4 });
+    const front = { city: 'thunder', grove: 'mist', snow: 'blizzard', castle: 'petals', harbour: 'wave' }[C.to];
+    SND(front, { vol: 0.75, delay: C.to === 'city' ? 0.7 : 0.2 });
+  }
   if (!C.passed && R.drawX >= gx && !R.vert) {
     C.passed = true;
+    SND('gate_boom', { vol: 0.9, duck: 0.5 });
     if (C.t0 == null) C.t0 = S.t - CROSS_DUR * 0.6;
     const th = THEME[C.to], fy = footY(C.gate);
     for (let k = 0; k < 3; k++) embers(gx, fy - 30, 18, th.burst[k], 34);
@@ -2718,6 +2837,7 @@ function drawCard(c) {
     g.globalAlpha = 1;
     if (su >= 1 && !c.stamped) {
       c.stamped = true;
+      SND('card_stamp', { vol: 0.7 });
       shake(2);
       for (let k = 0; k < 10; k++) S.R.fx.push({ dot: true, x: S.R.cam + cx + (hash(k, 20) - 0.5) * 40, y: cy + (hash(k, 21) - 0.5) * 40 - S.R.camY, vx: (hash(k, 22) - 0.5) * 60, vy: (hash(k, 23) - 0.5) * 60, life: 0.4, t0: S.t, col: '#C8342E' });
     }
@@ -3392,6 +3512,21 @@ function drawLoading() {
 // so the loop is exact. Eight shots jump-cut between the worlds; the last closes
 // in an ink wipe that the first opens from.
 const SHOW_INTRO = 1.5, SHOW_LOOP = 10;
+let showLast = 0, showWatch = null;
+function showcaseAudio(t) {
+  showLast = performance.now();
+  if (S.active) return;                                  // in the game, the game has its own music
+  // the track starts with the trailer, or waits for its loop point, so the cuts stay on the beat
+  if (MUS.current !== 'intro' && KataAudio.ready && (t < 0.5 || (t % SHOW_LOOP) < 0.12)) MUS.play('intro', { now: true, restart: true, fade: 0.05 });
+  if (!showWatch) {
+    showWatch = setInterval(() => {
+      if (performance.now() - showLast > 400) {
+        if (MUS.current === 'intro') MUS.stop(0.6);
+        clearInterval(showWatch); showWatch = null;
+      }
+    }, 200);
+  }
+}
 
 function showcaseScene(g, W, H, t, fn) {
   const sR = S.R, sT = S.t, sC = S.ctx;
@@ -3663,6 +3798,7 @@ const KATA_SHOWCASE = {
   // t: seconds since the select screen opened. dim: how much to darken for the menu over it
   background(g, W, H, t, dim) {
     if (!S.ready) { if (!S.loading && !S.error) loadAssets(); g.fillStyle = '#05070E'; g.fillRect(0, 0, W, H); return; }
+    showcaseAudio(t);
     showcaseScene(g, W, H, t, () => {
       drawTrailerFrame(t);
       // the menu reads over a darker top and bottom
@@ -3799,9 +3935,15 @@ const KATA = {
   // the select-screen face of the game: icon, wordmark, intro and trailer
   showcase: KATA_SHOWCASE,
 
+  // the sound engine, for hosts that want a volume or mute control
+  audio: KataAudio,
+
   enter() {
+    S.active = true;
     loadRank();
     loadAssets();
+    MUS.setMuffle(0);
+    MUS.play('menu', { now: true, fade: 1 });
     S.mode = 'title';
     S.modeT = S.t;
     S.sel = 0;
@@ -3811,7 +3953,10 @@ const KATA = {
   },
 
   exit() {
+    S.active = false;
     if (typeof window !== 'undefined' && window.TYPEMAXX) window.TYPEMAXX.pixel = null;
+    stopThreatLoop();
+    MUS.stop(0.8);
   },
 
   draw(g, W, H, seconds, now, input) {

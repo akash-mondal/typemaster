@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<meta charset="utf-8">
+<title>KATA - review</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#0b0d12; --panel:#12151d; --line:#232837; --ink:#e8ecf2; --dim:#8a93a6; --gold:#f4b93d; --ok:#5fd38d; --chg:#f0795e; --acc:#8df0b4; }
+  * { box-sizing: border-box }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif }
+  header { position:sticky; top:0; z-index:5; display:flex; gap:18px; align-items:center; padding:12px 22px; background:rgba(11,13,18,.92); backdrop-filter:blur(8px); border-bottom:1px solid var(--line) }
+  header h1 { margin:0; font-size:16px; letter-spacing:.14em }
+  header h1 b { color:var(--gold) }
+  nav { display:flex; gap:4px }
+  nav button { background:none; border:1px solid transparent; color:var(--dim); padding:7px 12px; border-radius:8px; cursor:pointer; font:inherit }
+  nav button.on { color:var(--ink); border-color:var(--line); background:var(--panel) }
+  .sum { margin-left:auto; display:flex; gap:12px; align-items:center; color:var(--dim) }
+  .sum b.ok { color:var(--ok) } .sum b.chg { color:var(--chg) }
+  .btn { background:var(--panel); color:var(--ink); border:1px solid var(--line); padding:7px 12px; border-radius:8px; cursor:pointer; font:inherit }
+  .btn:hover { border-color:#3a4258 }
+  .btn.gold { background:var(--gold); color:#141005; border-color:var(--gold); font-weight:600 }
+  main { padding:22px; max-width:1500px; margin:0 auto }
+  section { display:none } section.on { display:block }
+  h2 { font-size:13px; letter-spacing:.16em; color:var(--dim); margin:26px 0 10px; text-transform:uppercase }
+  .note { color:var(--dim); margin:0 0 14px; max-width:880px }
+  .grid { display:grid; gap:12px; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)) }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px; display:flex; flex-direction:column; gap:8px }
+  .card.approved { border-color:rgba(95,211,141,.55) } .card.change { border-color:rgba(240,121,94,.65) }
+  .card .t { display:flex; align-items:center; gap:8px; font-weight:600 }
+  .card .t code { font:12px ui-monospace, Menlo, monospace; color:var(--acc); font-weight:500 }
+  .card .d { color:var(--dim); font-size:12.5px; min-height:18px }
+  .row { display:flex; gap:6px; align-items:center; flex-wrap:wrap }
+  .verdict { display:flex; gap:6px }
+  .verdict button { flex:1; background:none; border:1px solid var(--line); color:var(--dim); border-radius:7px; padding:5px; cursor:pointer; font:12px inherit }
+  .verdict button.ok.on { background:rgba(95,211,141,.14); color:var(--ok); border-color:var(--ok) }
+  .verdict button.chg.on { background:rgba(240,121,94,.14); color:var(--chg); border-color:var(--chg) }
+  textarea { width:100%; min-height:44px; background:#0c0e14; color:var(--ink); border:1px solid var(--line); border-radius:7px; padding:6px 8px; font:12.5px inherit; resize:vertical; display:none }
+  .card.change textarea { display:block }
+  canvas.sprite { image-rendering:pixelated; background:#1c2436; border-radius:8px; width:100%; height:auto }
+  .music .card { gap:10px }
+  .slider { display:flex; gap:8px; align-items:center; color:var(--dim); font-size:12px }
+  .slider input { flex:1 }
+  .pos { font:12px ui-monospace, Menlo, monospace; color:var(--acc) }
+  .unlock { background:linear-gradient(90deg, rgba(244,185,61,.15), transparent); border:1px solid rgba(244,185,61,.45); padding:10px 14px; border-radius:10px; margin-bottom:16px }
+  iframe { width:100%; border:1px solid var(--line); border-radius:12px; background:#000 }
+  .filters { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px }
+  .filters button.on { border-color:var(--gold); color:var(--gold) }
+  .toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:var(--gold); color:#141005; padding:8px 14px; border-radius:8px; font-weight:600; opacity:0; transition:opacity .2s }
+  .toast.on { opacity:1 }
+</style>
+<header>
+  <h1><b>KATA</b> REVIEW</h1>
+  <nav>
+    <button data-tab="music" class="on">Music</button>
+    <button data-tab="sfx">Sound effects</button>
+    <button data-tab="anim">Animations</button>
+    <button data-tab="show">Select screen</button>
+    <button data-tab="play">Play</button>
+  </nav>
+  <div class="sum"><span><b class="ok" id="nOk">0</b> approved</span><span><b class="chg" id="nChg">0</b> to change</span>
+    <button class="btn" id="clear">Reset</button><button class="btn gold" id="copy">Copy feedback</button></div>
+</header>
+<main>
+  <div class="unlock" id="unlock">Click anywhere once to switch the sound on (browsers block audio until you do).</div>
+
+  <section id="music" class="on music">
+    <p class="note">Every world theme is built in layers. Drag <b>intensity</b> to hear the layers fade in: 0 is calm running, 1 adds drive, 2 brings in the melody, 3 is a full fight. <b>Climbing</b> adds the tower ostinato; <b>last heart</b> adds the heartbeat. In the game these follow the action by themselves. <b>Cross to</b> plays the real world change: the current theme hands over on the bar line with the gate sting.</p>
+    <div class="card" style="margin-bottom:14px">
+      <div class="row">
+        <span class="t">Now playing: <code id="now">nothing</code></span>
+        <span class="pos" id="pos"></span>
+        <button class="btn" id="stopAll" style="margin-left:auto">Stop music</button>
+      </div>
+      <div class="slider">intensity <input type="range" min="0" max="3" step="1" value="0" id="inten"><b id="intenV">0</b></div>
+      <div class="row">
+        <label><input type="checkbox" id="tClimb"> climbing</label>
+        <label><input type="checkbox" id="tDanger"> last heart</label>
+        <label style="margin-left:14px">muffle <input type="range" min="0" max="1" step="0.05" value="0" id="muffle"></label>
+      </div>
+    </div>
+    <div class="grid" id="songs"></div>
+    <h2>Stings</h2>
+    <div class="grid" id="stings"></div>
+  </section>
+
+  <section id="sfx">
+    <p class="note">Every sound is generated in code, so any of them can be retuned. Each card says where it plays. Press play a few times: there is a little pitch variety on purpose, so repeats never sound mechanical.</p>
+    <div id="sfxGroups"></div>
+  </section>
+
+  <section id="anim">
+    <p class="note">Every animation in the atlas, playing at its game speed. Filter by world to compare the costumes; the tiles below are the world art.</p>
+    <div class="filters" id="animFilters"></div>
+    <div class="grid" id="clips"></div>
+    <h2>Brand, towers and world pieces</h2>
+    <div class="grid" id="tiles"></div>
+  </section>
+
+  <section id="show">
+    <p class="note">The select screen as TYPEMAXX will show it: the intro (ink, slash, logo), then the 10-second trailer looping, with its own music synced to the cuts. <button class="btn" id="reShow">Replay intro</button></p>
+    <div class="grid" style="grid-template-columns:1fr 300px">
+      <iframe id="showFrame" src="../flowart/showcase.html" style="height:740px"></iframe>
+      <div id="showCards"></div>
+    </div>
+  </section>
+
+  <section id="play">
+    <p class="note">The game itself, with the full sound engine. Click the game, press Enter to start, and type. Towers appear from stage 3; world crossings every few minutes.</p>
+    <div class="grid" style="grid-template-columns:1fr 300px">
+      <iframe id="playFrame" src="about:blank" style="height:740px"></iframe>
+      <div id="playCards"></div>
+    </div>
+  </section>
+</main>
+<div class="toast" id="toast">Copied</div>
+
+<script type="module">
+import A from '../../games/kata-audio.js';
+
+// ---------------------------------------------------------------- verdicts
+const KEY = 'kata.review.v1';
+const store = JSON.parse(localStorage.getItem(KEY) || '{}');
+const save = () => { localStorage.setItem(KEY, JSON.stringify(store)); tally(); };
+function tally() {
+  const v = Object.values(store);
+  document.getElementById('nOk').textContent = v.filter(x => x.v === 'ok').length;
+  document.getElementById('nChg').textContent = v.filter(x => x.v === 'chg').length;
+}
+function verdict(card, id, label) {
+  const box = document.createElement('div');
+  box.className = 'verdict';
+  box.innerHTML = '<button class="ok">Approve</button><button class="chg">Change</button>';
+  const ta = document.createElement('textarea');
+  ta.placeholder = 'What should change?';
+  card.append(box, ta);
+  const [okB, chB] = box.querySelectorAll('button');
+  const paint = () => {
+    const s = store[id] || {};
+    okB.classList.toggle('on', s.v === 'ok'); chB.classList.toggle('on', s.v === 'chg');
+    card.classList.toggle('approved', s.v === 'ok'); card.classList.toggle('change', s.v === 'chg');
+    ta.value = s.note || '';
+  };
+  okB.onclick = () => { store[id] = { v: store[id] && store[id].v === 'ok' ? null : 'ok', note: '', label }; save(); paint(); };
+  chB.onclick = () => { store[id] = { v: store[id] && store[id].v === 'chg' ? null : 'chg', note: (store[id] || {}).note || '', label }; save(); paint(); ta.focus(); };
+  ta.oninput = () => { store[id] = { v: 'chg', note: ta.value, label }; save(); };
+  paint();
+}
+function card(parent, id, title, code, desc) {
+  const c = document.createElement('div');
+  c.className = 'card';
+  c.innerHTML = `<div class="t">${title}${code ? ` <code>${code}</code>` : ''}</div><div class="d">${desc || ''}</div>`;
+  parent.append(c);
+  return c;
+}
+document.getElementById('copy').onclick = async () => {
+  const lines = ['# KATA review feedback', ''];
+  const groups = { chg: 'Change', ok: 'Approved' };
+  for (const k of ['chg', 'ok']) {
+    const items = Object.entries(store).filter(([, x]) => x.v === k);
+    if (!items.length) continue;
+    lines.push('## ' + groups[k]);
+    for (const [id, x] of items) lines.push('- ' + (x.label || id) + (x.note ? ': ' + x.note.trim() : ''));
+    lines.push('');
+  }
+  await navigator.clipboard.writeText(lines.join('\n'));
+  const t = document.getElementById('toast'); t.classList.add('on'); setTimeout(() => t.classList.remove('on'), 1200);
+};
+document.getElementById('clear').onclick = () => { if (confirm('Clear every verdict?')) { for (const k of Object.keys(store)) delete store[k]; save(); location.reload(); } };
+tally();
+
+// ---------------------------------------------------------------- tabs and unlock
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('main section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
+  if (b.dataset.tab !== 'music') { /* keep the music going only while listening to it */ }
+  if (b.dataset.tab === 'play' && document.getElementById('playFrame').src === 'about:blank') document.getElementById('playFrame').src = '../flowart/play.html?review=1';
+  if (b.dataset.tab === 'show' || b.dataset.tab === 'play') A.music.stop(0.3);
+});
+addEventListener('pointerdown', () => { A.unlock(); document.getElementById('unlock').style.display = 'none'; }, { once: true });
+
+// ---------------------------------------------------------------- music
+const SONG_INFO = {
+  intro: ['Select screen intro', 'Loops every 10 s with the trailer; drum accents land on its cuts.'],
+  menu: ['KATA title and menus', 'Calm koto and shakuhachi in the In scale.'],
+  city: ['Night City', 'Driving shamisen and taiko, D In scale.'],
+  grove: ['Bamboo Grove', 'Koto and shakuhachi, bright Yo scale, wood clappers.'],
+  snow: ['Snow Shrine Pass', 'Bells and slow pads, a sparse Hirajoshi feel.'],
+  castle: ['Castle Walls', 'War drums and FM brass, C minor, heroic.'],
+  harbour: ['Harbour at Dusk', 'Rolling FM mallets and a sea-shanty lead.'],
+  results: ['Results', 'A short, reflective cadence after a run.'],
+};
+const songsEl = document.getElementById('songs');
+for (const name of A.songs) {
+  const [title, desc] = SONG_INFO[name] || [name, ''];
+  const c = card(songsEl, 'song:' + name, title, name, desc);
+  const row = document.createElement('div'); row.className = 'row';
+  const p = document.createElement('button'); p.className = 'btn gold'; p.textContent = 'Play';
+  p.onclick = () => { A.unlock(); A.music.play(name, { now: true, restart: true }); };
+  row.append(p);
+  if (['city', 'grove', 'snow', 'castle', 'harbour'].includes(name)) {
+    const sel = document.createElement('select');
+    sel.className = 'btn';
+    sel.innerHTML = '<option value="">Cross to…</option>' + ['city', 'grove', 'snow', 'castle', 'harbour'].filter(n => n !== name).map(n => `<option>${n}</option>`).join('');
+    sel.onchange = () => { if (!sel.value) return; A.unlock(); if (A.music.current !== name) A.music.play(name, { now: true }); setTimeout(() => A.music.play(sel.value, { sting: 'gate', fade: 1.4 }), 1800); sel.value = ''; };
+    row.append(sel);
+  }
+  c.append(row);
+  verdict(c, 'song:' + name, 'Music - ' + title);
+}
+const stingsEl = document.getElementById('stings');
+const STING_INFO = { stage: 'Stage up', gate: 'Entering a world (plays with the handover)', death: 'Death', rank: 'New rank on results', tower: 'Reaching a tower', summit: 'Over the top of a tower' };
+for (const name of A.stings) {
+  const c = card(stingsEl, 'sting:' + name, STING_INFO[name] || name, name, '');
+  const b = document.createElement('button'); b.className = 'btn gold'; b.textContent = 'Play';
+  b.onclick = () => { A.unlock(); A.sting(name); };
+  c.append(b);
+  verdict(c, 'sting:' + name, 'Sting - ' + (STING_INFO[name] || name));
+}
+const inten = document.getElementById('inten');
+inten.oninput = () => { A.music.setIntensity(+inten.value); document.getElementById('intenV').textContent = inten.value; };
+document.getElementById('tClimb').onchange = e => A.music.setTag('climb', e.target.checked);
+document.getElementById('tDanger').onchange = e => A.music.setTag('danger', e.target.checked);
+document.getElementById('muffle').oninput = e => A.music.setMuffle(+e.target.value);
+document.getElementById('stopAll').onclick = () => A.music.stop(0.5);
+setInterval(() => {
+  document.getElementById('now').textContent = A.music.current || 'nothing';
+  const p = A.music.position;
+  document.getElementById('pos').textContent = p ? `bar ${Math.floor(p.step / 16) + 1} · beat ${Math.floor(p.step / 4) % 4 + 1} · ${p.bpm} bpm` : '';
+}, 100);
+
+// ---------------------------------------------------------------- sound effects
+const SFX_GROUPS = [
+  ['Menus', { ui_move: 'Moving between menu items', ui_select: 'Choosing an item, a fork road', ui_back: 'Going back', count_tick: 'Countdown 3, 2, 1', count_go: 'The run starts' }],
+  ['Typing', { key: 'Every correct key (rises in pitch with your combo tier)', key_wrong: 'A wrong key', crack: 'A wrong key cracks the roof', tier_up: 'Combo tier up: SWIFT, FIERCE, FLOW', power_word: 'A gold word typed clean', snuff: 'A blue word puts out the lantern' }],
+  ['Movement', { step_tile: 'Footsteps on tiled roofs', step_wood: 'Footsteps on bridges, boats, warehouses', step_bamboo: 'Footsteps on huts and bamboo decks', step_snow: 'Footsteps on snowy roofs', step_plaster: 'Footsteps on plaster', jump: 'Jumping to the next roof', land: 'Landing', glide: 'The dive off a tower', climb_grip: 'Climbing a tower (grove, snow, harbour)', climb_metal: 'Climbing with claws or kunai (city, castle)', mantle: 'Pulling over the top of a tower' }],
+  ['Blades', { swing: 'A sword swing', slash_hit: 'A cut that lands', clash: 'Blocking an arrow', deflect: 'Deflecting a shuriken with the sword', parry: 'Parrying an arrow back', catch: 'Catching a shuriken', kill_word: 'Typing a kill word: the finishing cut', duel_start: 'An enemy steps up to duel', ronin_draw: 'A ronin draws on you' }],
+  ['Enemies', { throw: 'A kage throws', shuriken_whirr: 'The star in flight', arrow_draw: 'An archer draws', arrow_loose: 'The arrow looses', enemy_die: 'An enemy falls', shutter: 'A window shutter bangs open on a tower' }],
+  ['You', { hurt: 'Taking a hit', heart_pick: 'Picking up a heart', heart_lost: 'Losing a heart', body_fall: 'Falling to your death' }],
+  ['Roofs and buildings', { roof_break: 'A cracked roof gives way under you', building_fall: 'A building collapsing (reserved for a set piece)' }],
+  ['The hook', { hook_throw: 'Throwing the grappling hook', hook_catch: 'The hook bites', rope_swing: 'Swinging across', slip: 'Missing the hook and slipping' }],
+  ['World hazards and crossings', { icicle_crack: 'An icicle breaks loose', icicle_shatter: 'Dodged: the icicle shatters', crate_creak: 'Cargo swinging on its rope', thunder: 'Crossing into the Night City', mist: 'Crossing into the Bamboo Grove', blizzard: 'Crossing into the Snow Pass', petals: 'Crossing into the Castle', wave: 'Crossing into the Harbour', gate_boom: 'Passing under the torii', card_stamp: 'The world seal stamping down', stage_up: 'Stage up flourish' }],
+  ['Kata', { kata_menu: 'Opening the kata menu', kata_tiger: 'TIGER: cut down every foe', kata_still: 'STILL: stop the pursuit', kata_shadow: 'SHADOW: untouchable', kata_crane: 'CRANE: soar ahead' }],
+  ['Towers', { tower_enter: 'Jumping onto a tower', threat_smoke: 'Rising smoke (city, loops)', threat_mist: 'Rising mist (grove, loops)', threat_avalanche: 'Avalanche below (snow, loops)', threat_guards: 'Guards climbing after you (castle, loops)', threat_tide: 'The tide rising (harbour, loops)' }],
+];
+const groupsEl = document.getElementById('sfxGroups');
+const loopsOn = {};
+for (const [group, items] of SFX_GROUPS) {
+  const h = document.createElement('h2'); h.textContent = group; groupsEl.append(h);
+  const g = document.createElement('div'); g.className = 'grid'; groupsEl.append(g);
+  for (const [name, desc] of Object.entries(items)) {
+    if (!A.sounds.includes(name)) continue;
+    const c = card(g, 'sfx:' + name, name.replace(/_/g, ' '), '', desc);
+    const b = document.createElement('button'); b.className = 'btn gold';
+    const isLoop = name.startsWith('threat_');
+    b.textContent = isLoop ? 'Loop' : 'Play';
+    b.onclick = () => {
+      A.unlock();
+      if (isLoop) {
+        if (loopsOn[name]) { loopsOn[name].stop(0.5); loopsOn[name] = null; b.textContent = 'Loop'; }
+        else { loopsOn[name] = A.loop(name, { vol: 0.6 }); b.textContent = 'Stop'; }
+      } else A.sfx(name, { vol: 0.8 });
+    };
+    c.append(b);
+    verdict(c, 'sfx:' + name, 'Sound - ' + name + ' (' + desc + ')');
+  }
+}
+
+// ---------------------------------------------------------------- animations
+const BASE = '../../assets/flow/';
+const M = await (await fetch(BASE + 'manifest.json', { cache: 'reload' })).json();
+const img = new Image();
+img.src = BASE + 'atlas.png?' + Date.now();
+await new Promise(r => img.onload = r);
+const clipsEl = document.getElementById('clips');
+const WORLD_SUFFIX = ['grove', 'snow', 'castle', 'harbour', 'city'];
+const worldOf = n => WORLD_SUFFIX.find(w => n.endsWith('_' + w)) || 'base';
+const CLIP_INFO = {
+  ninja_run: 'Running the roofs', ninja_jump: 'Leaping between roofs', ninja_idle: 'Waiting at a fork or gate', ninja_strike: 'The sword cut (also the deflect)',
+  ninja_die: 'Death', ninja_block: 'Blocking an arrow', ninja_stumble: 'Taking a hit', ninja_slide: 'Sliding under a hazard', ninja_victory: 'Victory',
+  ninja_throw: 'Throwing the hook', ninja_swing: 'Swinging on the rope', ninja_catch: 'Catching a star', ninja_climb: 'Climbing a tower, from behind',
+  ninja_hang: 'Holding on to a tower', ninja_mantle: 'Pulling over the top', ninja_glide: 'Diving off a tower',
+  enemy_idle: 'Ronin waiting', enemy_wind: 'Ronin winding up', enemy_strike: 'Ronin cutting', enemy_die: 'Ronin falling',
+  kage_idle: 'Kage waiting', kage_throw: 'Kage throwing', kage_strike: 'Kage cutting', kage_die: 'Kage falling', kage_lean: 'Kage in a window',
+  archer_idle: 'Archer waiting', archer_draw: 'Archer drawing', archer_loose: 'Archer loosing', archer_die: 'Archer falling', archer_strike: 'Archer cutting', archer_lean: 'Archer in a window',
+  slash: 'Blade trail', blood_spray: 'Blood', blood_pool: 'Blood pool', shuriken: 'Shuriken', spark: 'Spark', dust: 'Dust', lantern_pick: 'Heart pickup',
+  kata_tiger: 'TIGER slam', kata_crane: 'CRANE slam', kata_shadow: 'SHADOW slam', kata_still: 'STILL slam',
+};
+const players = [];
+function clipCanvas(name, scale) {
+  const c = M.clips[name];
+  let w = 0, h = 0;
+  for (const f of c.frames) { w = Math.max(w, f[2]); h = Math.max(h, f[3]); }
+  const cv = document.createElement('canvas');
+  cv.width = Math.max(64, w + 8) * scale; cv.height = (h + 8) * scale;
+  cv.className = 'sprite';
+  const g = cv.getContext('2d'); g.imageSmoothingEnabled = false;
+  players.push({ g, cv, c, w, h, scale });
+  return cv;
+}
+function drawPlayers(now) {
+  for (const p of players) {
+    if (!p.cv.isConnected || p.cv.closest('.card').style.display === 'none') continue;
+    const i = Math.floor(now / p.c.ms) % p.c.frames.length;
+    const f = p.c.frames[i];
+    p.g.clearRect(0, 0, p.cv.width, p.cv.height);
+    p.g.drawImage(img, f[0], f[1], f[2], f[3], Math.round((p.cv.width / p.scale - f[2]) / 2) * p.scale, (p.cv.height / p.scale - 4 - f[3]) * p.scale, f[2] * p.scale, f[3] * p.scale);
+  }
+  requestAnimationFrame(drawPlayers);
+}
+const names = Object.keys(M.clips);
+for (const name of names) {
+  const base = name.replace(/_(grove|snow|castle|harbour|city)$/, '');
+  const wk = worldOf(name);
+  const c = card(clipsEl, 'clip:' + name, name.replace(/_/g, ' '), M.clips[name].frames.length + ' frames', (CLIP_INFO[base] || '') + (wk !== 'base' ? ' · ' + wk : ''));
+  c.dataset.world = wk;
+  c.insertBefore(clipCanvas(name, 4), c.querySelector('.d').nextSibling);
+  verdict(c, 'clip:' + name, 'Animation - ' + name);
+}
+requestAnimationFrame(drawPlayers);
+const filters = document.getElementById('animFilters');
+for (const f of ['all', 'ninja', 'enemies', 'base', 'city', 'grove', 'snow', 'castle', 'harbour', 'effects']) {
+  const b = document.createElement('button'); b.className = 'btn' + (f === 'all' ? ' on' : ''); b.textContent = f;
+  b.onclick = () => {
+    filters.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+    for (const c of clipsEl.children) {
+      const n = c.querySelector('.t').textContent.replace(/ /g, '_');
+      const show = f === 'all' || (f === 'ninja' && n.startsWith('ninja')) || (f === 'enemies' && /^(enemy|kage|archer)/.test(n))
+        || (f === 'effects' && !/^(ninja|enemy|kage|archer)/.test(n)) || c.dataset.world === f;
+      c.style.display = show ? '' : 'none';
+    }
+  };
+  filters.append(b);
+}
+// tiles
+const tilesEl = document.getElementById('tiles');
+const TILE_PICK = ['icon_kata', 'logo_kata', 'wseal', 'wkanji_city', 'wkanji_grove', 'wkanji_snow', 'wkanji_castle', 'wkanji_harbour',
+  'gate_torii', 'hook_post', 'post_lantern_lit', 'facade_city', 'facade_grove', 'facade_snow', 'facade_castle', 'facade_harbour',
+  'castle_keep', 'bamboo_stand', 'pagoda_snow', 'lighthouse', 'junk', 'sakura_tree', 'turret', 'toro', 'mast', 'barrels'];
+for (const name of TILE_PICK) {
+  const t = M.tiles[name]; if (!t) continue;
+  const c = card(tilesEl, 'tile:' + name, name.replace(/_/g, ' '), t[2] + '×' + t[3], '');
+  const s = t[2] > 90 ? 2 : 4;
+  const cv = document.createElement('canvas'); cv.className = 'sprite'; cv.width = t[2] * s + 16; cv.height = t[3] * s + 16;
+  const g = cv.getContext('2d'); g.imageSmoothingEnabled = false; g.drawImage(img, t[0], t[1], t[2], t[3], 8, 8, t[2] * s, t[3] * s);
+  c.insertBefore(cv, c.querySelector('.d').nextSibling);
+  verdict(c, 'tile:' + name, 'Art - ' + name);
+}
+
+// ---------------------------------------------------------------- the showcase and the game
+const showCards = document.getElementById('showCards');
+for (const [id, t, d] of [['show:intro', 'The intro', 'Ink drop, katana cut, the dark splits, logo slams in'], ['show:trailer', 'The trailer', '8 shots, jump cuts, no text, loops at 10 s'], ['show:logo', 'The wordmark', 'Blade-cut KATA with the seal of 型'], ['show:icon', 'The app icon', 'Tile 1 on the select screen'], ['show:music', 'Intro music', 'In sync with the trailer cuts']]) {
+  const c = card(showCards, id, t, '', d); c.style.marginBottom = '10px'; verdict(c, id, 'Select screen - ' + t);
+}
+document.getElementById('reShow').onclick = () => { const f = document.getElementById('showFrame'); f.src = f.src; };
+const playCards = document.getElementById('playCards');
+for (const [id, t, d] of [['play:dynamic', 'Dynamic music', 'Layers follow the action: calm, drive, melody, battle'], ['play:biomes', 'World changes', 'The theme hands over at the gate'], ['play:tower', 'Tower music', 'Climb ostinato and the rising threat'], ['play:danger', 'Last heart', 'Heartbeat and tension'], ['play:mix', 'Overall mix', 'Music against effects, loudness'], ['play:feel', 'Game feel', 'Anything else about how it plays']]) {
+  const c = card(playCards, id, t, '', d); c.style.marginBottom = '10px'; verdict(c, id, 'In game - ' + t);
+}
+</script>
+</html>
