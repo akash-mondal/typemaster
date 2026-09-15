@@ -2064,7 +2064,7 @@ function genTower(wk, seg, x, lane) {
   return T;
 }
 
-function climbX(T, side) { return side === 'right' ? T.x + T.w + 5 : T.x - 5; }
+function climbX(T, side) { return side === 'right' ? T.x + T.w + 1 : T.x - 1; }   // hugging the corner, clear of the words
 function towerCapY(T) { return T.baseY - T.floors * FH; }
 function summitY(T) { return towerCapY(T) - 16; }
 function enemyFootY(o) { return o.tower ? o.ry + 8 : footY(o); }
@@ -2100,7 +2100,7 @@ function leaveTower(from) {
 
 // each wall gives up something different under the ninja's hands
 function climbChips(T, side) {
-  const R = S.R, hx = R.drawX + (side === 'right' ? -6 : 6), hy = R.climbY - 34;
+  const R = S.R, hx = R.drawX + (((R.vert && R.vert.dist) || 0) / 14 % 2 < 1 ? -9 : 9), hy = R.climbY - 38;
   const k = T.wk;
   if (k === 'city') embers(hx, hy, 2, hash((S.t * 50) | 0, 3) < 0.5 ? COL.gold : COL.steel, 6);
   else if (k === 'grove') embers(hx, hy + 4, 2, '#5E7430', -8);
@@ -2135,7 +2135,10 @@ function updateTower(dt, wdt) {
       let ty = R.climbY;
       if (opt && opt.tower) ty = opt.ry - FH * (R.ci / opt.len);
       const moving = Math.abs(ty - R.climbY) > 1;
+      const before = R.climbY;
       R.climbY += (ty - R.climbY) * (1 - Math.exp(-wdt * 12));
+      V.dist = (V.dist || 0) + Math.abs(R.climbY - before);
+      if (Math.abs(R.climbY - before) > 0.05) V.lastMoveT = S.t;
       if (moving && S.t - (V.chipT || 0) > 0.14) { V.chipT = S.t; climbChips(T, V.side); }
     }
     // the threat rises from below; it never falls far behind
@@ -2209,8 +2212,11 @@ function updateGrappleV(gdt) {
     if (u >= 1 && !gp.hurt) { gp.hurt = true; loseHeart('SLIPPED', 1); gp.phase = 'climb'; gp.t0 = S.t; gp.y1 = R.jumpY; }
   } else if (gp.phase === 'climb') {
     const u = clamp((S.t - gp.t0) / 1.1, 0, 1);
+    const before = R.climbY;
     R.jumpY = lerp(gp.y1, top, u);
     R.climbY = R.jumpY;
+    V.dist = (V.dist || 0) + Math.abs(R.climbY - before);
+    V.lastMoveT = S.t;
     if (u >= 1) landV(gp, false);
   }
 }
@@ -3123,7 +3129,7 @@ function drawNinja() {
   } else if (gp && gp.phase === 'fall') {
     clip = 'ninja_stumble'; fi = 1;
   } else if (gp && gp.phase === 'climb') {
-    clip = gp.vertical ? vclip('ninja_climb', R.vert.tower.wk) : 'ninja_jump'; fi = gp.vertical ? frameOf('ninja_climb', S.t) : 2;
+    clip = gp.vertical ? vclip('ninja_climb', R.vert.tower.wk) : 'ninja_jump'; fi = gp.vertical ? Math.floor((R.vert.dist || 0) / 7) % 4 : 2;
   } else if (R.enc && R.enc.win) {
     clip = 'ninja_strike'; fi = Math.min(3, (S.t - R.enc.t0) / 0.3 * 4);
   } else if (R.anim && S.t - R.anim.t0 < R.anim.dur && S.M.clips[R.anim.clip]) {
@@ -3136,17 +3142,16 @@ function drawNinja() {
     clip = 'ninja_jump'; fi = Math.min(5, R.jump.t / R.jump.dur * 6);
   } else if (onWall) {
     // hand over hand while the words go in; hanging on while they don't
-    const cur = curOpt();
-    const moving = V.shimmy || (cur && cur.tower && Math.abs((cur.ry - FH * (R.ci / cur.len)) - R.climbY) > 0.8);
-    clip = vclip(moving ? 'ninja_climb' : 'ninja_hang', V.tower.wk);
-    fi = frameOf(clip, S.t);
+    const still = !V.shimmy && S.t - (V.lastMoveT || 0) > 0.7;
+    clip = vclip(still ? 'ninja_hang' : 'ninja_climb', V.tower.wk);
+    fi = still ? frameOf(clip, S.t) : V.shimmy ? Math.floor(S.t * 8) % 4 : Math.floor((V.dist || 0) / 7) % 4;
   } else if (R.pending || gp || Math.abs(R.targetX - R.drawX) < 0.6 && S.t - R.lastLandT > 0.35 && R.hitstop <= 0) {
     clip = 'ninja_idle'; fi = frameOf('ninja_idle', S.t);
   } else {
     clip = 'ninja_run'; fi = frameOf('ninja_run', S.t);
   }
   // on the right-hand corner he faces the wall to his left
-  if (V && V.side === 'right' && V.phase !== 'summit' && V.phase !== 'dive') flip = true;
+  if (V && V.side === 'right' && V.phase !== 'summit' && V.phase !== 'dive' && !/^ninja_(climb|hang)/.test(clip)) flip = true;
   const draw = flip ? putFlip : put;
   for (let i = 0; i < R.trail.length; i += 2) {
     const tr = R.trail[i];
@@ -3378,13 +3383,7 @@ const fakeOpt = (x, w, ry, type, world, text, extra) =>
 function tRoof(o, cam, typed) {
   const x = Math.round(o.x - cam);
   if (x + o.w < -60 || x > LW + 60) return;
-  const b = drawRoof(o, x, o.ry, 0);
-  for (let i = 0; i < o.len; i++) {
-    const ch = o.text[i];
-    if (ch === ' ') continue;
-    cell(ch, x + PADX + i * ADV, b.textY, i < typed ? 'dim' : i === typed ? 'gold' : 'ink');
-  }
-  if (typed < o.len && typed >= 0) rect(x + PADX + typed * ADV, b.textY + 9, ADV - 1, 1, COL.gold);
+  drawRoof(o, x, o.ry, 0);          // the trailer shows no text: only action
 }
 
 function arc(x0, y0, x1, y1, h, u) {
@@ -3450,7 +3449,6 @@ const SHOTS = [
     put(clip, fi, nx - cam, ny);
     if (s > 0.7 && s < 1.25) { const u = (s - 0.7) / 0.55; put('shuriken', frameOf('shuriken', tt), lerp(kx - 8, nx - cam + 4, u), lerp(104, ny - 20, u)); }
     drawWeather('city', cam, tt, 1.4);
-    caption('TYPE TO RUN', 'every roof is a road', s / 1.7);
   } },
   // 2. close up: the catch
   { d: 0.8, cut: true, draw(s, tt) {
@@ -3465,7 +3463,6 @@ const SHOTS = [
       else { put('shuriken', frameOf('shuriken', tt), 172, 136); if (s < 0.4) put('spark', (s - 0.22) * 18, 172, 136); }
     });
     if (s > 0.2 && s < 0.28) rect(0, 0, LW, LH, 'rgba(255,255,255,0.6)');
-    caption('CATCH IT', 'dodge early, send it back', (s + 0.1) / 0.9);
   } },
   // 3. the Snow Pass: over a chasm on the hook
   { d: 1.6, draw(s, tt) {
@@ -3491,7 +3488,6 @@ const SHOTS = [
     } else { nx = B.x + 16 + (s - 1.15) * 120; ny = 126; clip = 'ninja_run'; fi = frameOf('ninja_run', tt); }
     put(clip, fi, nx - cam, ny);
     drawWeather('snow', cam, tt, 1.6);
-    caption('HOOK THE GAP', 'five worlds, one road', (s - 0.2) / 1.3);
   } },
   // 4. close up: the ronin at the castle
   { d: 0.8, cut: true, draw(s, tt) {
@@ -3508,7 +3504,6 @@ const SHOTS = [
     });
     if (clash) rect(0, 0, LW, LH, 'rgba(255,255,255,0.7)');
     if (s > 0.4) putScaled('kata_tiger', Math.min(7, (s - 0.4) * 20), 244, 70, 1);
-    caption('ONE CUT', 'type his word, or fall', (s - 0.05) / 0.85);
   } },
   // 5. the Keep: climbing, a shinobi at the window
   { d: 1.7, draw(s, tt) {
@@ -3522,24 +3517,18 @@ const SHOTS = [
     S.R = { cam: 0, camY, vert: { side: 'left', tower: T } };
     g.save(); g.translate(0, Math.round(camY));
     drawTower(T);
-    for (let i = 0; i < 4; i++) {
-      const base = T.baseY - i * FH;
-      const words = ['the keep at sunset', 'arrow slits stare', 'climb the outer wall', 'the keep is near'][i];
-      for (let k = 0; k < words.length; k++) if (words[k] !== ' ') cell(words[k], T.x + PADX + k * ADV, base - FH + 15, i < 1 ? 'dim' : 'ink');
-    }
     // a shinobi leans out of the far window
     const wbase = T.baseY - FH * 2, wx = towerWindowX(T, 'right');
     g.save(); g.beginPath(); g.rect(wx + 2, wbase - 28, 14, 18); g.clip();
     put(vclip('kage_throw', 'castle'), s > 0.8 ? Math.min(2, (s - 0.8) * 10) : 0, wx + 9, wbase + 8);
     g.restore();
     blit(T.style.sill, wx - 2, wbase - 12);
-    put(vclip('ninja_climb', 'castle'), frameOf('ninja_climb', tt), climbX(T, 'left'), climbY);
+    put(vclip('ninja_climb', 'castle'), Math.floor((T.baseY - climbY) / 7) % 4, climbX(T, 'left'), climbY);
     if (s > 0.95 && s < 1.35) { const u = (s - 0.95) / 0.4; put('shuriken', frameOf('shuriken', tt), lerp(wx, climbX(T, 'left') + 4, u), lerp(wbase - 16, climbY - 20, u)); }
     g.restore();
     S.R = null;
     drawWeather('castle', 0, tt, 1.5);
     drawSideBars({ bars: 1 });
-    caption('CLIMB', 'the road turns upward', (s - 0.15) / 1.4);
   } },
   // 6. a crossing: the wave takes the castle, the harbour beyond
   { d: 1.1, draw(s, tt) {
@@ -3578,7 +3567,6 @@ const SHOTS = [
     else { put('ninja_run', frameOf('ninja_run', tt), 176 - cam + 100 + (s - 0.9) * 90, 150); if (s < 1.0) put('dust', (s - 0.9) * 40, 176 - cam + 100, 151); }
     g.restore();
     drawWeather('grove', cam, tt, 2.2);
-    caption('FIVE WORLDS', 'shuffled every run', (s - 0.2) / 1.0);
   } },
   // 8. the hero shot, and the ink closes over it
   { d: 1.1, draw(s, tt) {

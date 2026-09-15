@@ -839,3 +839,123 @@ if __name__ == "__main__":
     cs = clips()
     for k, v in cs.items():
         print(k, len(v), "frames")
+
+
+# ------------------------------------------------------------ the back climb
+# Climbing reads best from behind, the way the old ninja games drew it: the
+# ninja faces the wall, arms reaching up alternately, knees stepping. Built from
+# shaded capsule limbs on a posed skeleton, not from the side-view mannequin,
+# whose poses were never meant to hug a wall.
+
+def _capsule(g, x0, y0, x1, y1, r0, r1, ramp):
+    steps = int(max(abs(x1 - x0), abs(y1 - y0), 1)) * 4
+    for i in range(steps + 1):
+        t = i / float(steps)
+        cx, cy, r = x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, r0 + (r1 - r0) * t
+        ri = int(math.ceil(r))
+        for dy in range(-ri, ri + 1):
+            for dx in range(-ri, ri + 1):
+                if dx * dx + dy * dy > r * r + 0.3:
+                    continue
+                lit = (dx - dy) / (r * 2 + 0.001) + 0.5     # light from the upper right
+                g.put(int(round(cx + dx)), int(round(cy + dy)), ramp[max(0, min(len(ramp) - 1, int(lit * len(ramp))))])
+
+
+# (left hand, right hand, left foot, right foot) targets per frame, cell coordinates.
+# The figure hangs with its shoulders at y=15 and hips at y=25, centred on x=20.
+CLIMB_POSES = [
+    ((11, 2), (29, 13), (15, 31), (25, 38)),    # left hand high, left knee up
+    ((12, 8), (28, 8), (16, 35), (24, 35)),     # passing: both hands level
+    ((11, 13), (29, 2), (15, 38), (25, 31)),    # right hand high, right knee up
+    ((12, 8), (28, 8), (16, 35), (24, 35)),
+]
+
+
+def climb_back_frames(gear=None, phase=0.0):
+    ramp = [C["D"], C["M"], C["L"]]
+    frames = []
+    for n, (lh, rh, lf, rf) in enumerate(CLIMB_POSES):
+        g = Grid(OUT_W, OUT_H)
+        bob = 1 if n % 2 else 0                       # the body rises as the arms pull
+        sy, hy = 15 - bob, 25 - bob
+        # legs, behind the torso
+        for hip_x, foot in ((18, lf), (22, rf)):
+            fx, fy = foot
+            knee = ((hip_x + fx) / 2.0 + (-2 if hip_x < 20 else 2), (hy + fy) / 2.0 - (3 if fy < 36 else 0))
+            _capsule(g, hip_x, hy, knee[0], knee[1], 2.2, 1.9, ramp)
+            _capsule(g, knee[0], knee[1], fx, fy - 1, 1.9, 1.5, ramp)
+            # shin wraps and the tabi at the foot
+            g.put(fx, fy - 3, C["W"]); g.put(fx + 1, fy - 3, C["W"])
+            g.put(fx, fy - 1, C["K"]); g.put(fx + 1, fy - 1, C["K"]); g.put(fx - 1, fy - 1, C["K"])
+        # torso
+        _capsule(g, 20, sy + 1, 20, hy - 1, 4.3, 3.6, ramp)
+        # the sash
+        for x in range(16, 25):
+            if g.solid(x, hy - 2):
+                g.put(x, hy - 2, C["R"]); g.put(x, hy - 1, C["R2"])
+        # arms, reaching past the head
+        for sh_x, hand in ((16, lh), (24, rh)):
+            hx, hy2 = hand
+            elbow = ((sh_x + hx) / 2.0 + (-2 if sh_x < 20 else 2), (sy + hy2) / 2.0 + 1)
+            _capsule(g, sh_x, sy, elbow[0], elbow[1], 1.9, 1.6, ramp)
+            _capsule(g, elbow[0], elbow[1], hx, hy2 + 1, 1.6, 1.3, ramp)
+            g.put(hx, hy2, C["W"]); g.put(hx + 1, hy2, C["W"])      # wrapped hands on the wall
+            g.put(int(elbow[0]), int(elbow[1]) + 1, C["W"])
+        # the sword across the back, hilt over the left shoulder
+        for i in range(15):
+            x, y = 15 + i * 0.7, sy - 3 + i
+            g.put(x, y, C["S"] if i > 3 else C["H"])
+        g.put(14, sy - 4, C["H"])
+        # the head from behind: a dark hood, the red band, its tails trailing
+        for dy in range(-4, 4):
+            for dx in range(-4, 4):
+                if dx * dx + dy * dy <= 13:
+                    g.put(20 + dx, sy - 6 + dy, C["M"] if dy < 0 else C["D"])
+        for x in range(16, 24):
+            if g.solid(x, sy - 6):
+                g.put(x, sy - 6, C["R"])
+        for i in range(7):
+            sway = int(round(math.sin(phase + n * 1.6 + i * 0.7) * 1.2))
+            g.put(23 + i // 2 + sway, sy - 6 + i, C["R"] if i < 5 else C["R2"])
+            g.put(24 + i // 2 + sway, sy - 5 + i, C["R2"])
+        # the world's gear, at the high hand
+        hi = lh if lh[1] < rh[1] else rh
+        hx, hy2 = hi
+        if gear == "claws":
+            for dx, dy in ((-1, -1), (0, -2), (1, -2), (2, -1)):
+                g.put(hx + dx, hy2 + dy, C["S"])
+        elif gear == "picks":
+            for i in range(4):
+                g.put(hx + 1, hy2 - 1 - i, C["S"])
+            g.put(hx, hy2 - 4, C["S"]); g.put(hx + 2, hy2 - 4, C["S"])
+            for x in range(16, 25):                   # a fur collar
+                if g.solid(x, sy):
+                    g.put(x, sy, C["W"])
+        elif gear == "kunai":
+            g.put(hx, hy2 - 1, C["S"]); g.put(hx, hy2 - 2, C["S"]); g.put(hx, hy2 - 3, (0x6A, 0x70, 0x80, 255))
+        elif gear == "rope":
+            for y in range(0, OUT_H):
+                if not g.solid(20, y):
+                    g.put(20, y, (0xB8, 0x98, 0x68, 255) if y % 3 else (0x7A, 0x60, 0x3C, 255))
+        elif gear == "pole":
+            for y in range(0, OUT_H):
+                if not g.solid(27, y):
+                    g.put(27, y, (0x5E, 0x74, 0x30, 255) if y % 9 else (0xA8, 0xC0, 0x60, 255))
+                    g.put(28, y, (0x3A, 0x4A, 0x22, 255))
+        g.outline(C["K"])
+        frames.append(g)
+    return frames
+
+
+_clips_before_back = clips
+
+
+def clips():
+    out = _clips_before_back()
+    out["ninja_climb"] = climb_back_frames(None)
+    out["ninja_hang"] = [climb_back_frames(None, 0.5)[1], climb_back_frames(None, 1.5)[1]]
+    for wk, gear in (("city", "claws"), ("grove", "pole"), ("snow", "picks"), ("castle", "kunai"), ("harbour", "rope")):
+        fr = climb_back_frames(gear)
+        out["ninja_climb_" + wk] = fr
+        out["ninja_hang_" + wk] = [fr[1], climb_back_frames(gear, 1.5)[1]]
+    return out
