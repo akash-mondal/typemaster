@@ -874,7 +874,8 @@ function stepRainAmount(now, dt){
 
 function ensureShadowFloor(){
   applyGround();
-  const want = SCENE.shadowFloor === true || groundHidden();
+  // the white room is shadowless, like a lit studio sweep: no cast shadows on it at all
+  const want = SCENE.shadowFloor === true && !groundHidden();
   if(want && !shadowFloor){
     shadowFloor = new THREE.Mesh(
       new THREE.PlaneGeometry(4000, 4000),
@@ -887,7 +888,7 @@ function ensureShadowFloor(){
   }
   if(shadowFloor){
     shadowFloor.visible = want;
-    shadowFloor.material.opacity = groundHidden() && SCENE.shadowFloor !== true ? 0.16 : (SCENE.shadowOpacity ?? 0.34);
+    shadowFloor.material.opacity = SCENE.shadowOpacity ?? 0.34;
   }
 }
 
@@ -989,7 +990,7 @@ function applyFog(T){
 // A backdrop that is its own seamless floor (the white room) must not have the
 // board's ground plane or its fog in front of it: where that plane ends it cuts a
 // grey band with a hard edge across the room. While such a backdrop is up the
-// floor and fog go, and only the shadows stay, so the machine still sits on it.
+// floor, the fog and the shadow floor all go.
 let groundKey = '';
 function groundHidden(){
   // bgLayers is declared further down; the first theme is built before it exists
